@@ -59,14 +59,14 @@ const CITY_MAP = {
 
 function normalizeTurkish(str) {
   return str
+    .replace(/İ/g, "I")
     .toLowerCase()
     .replace(/ı/g, "i")
     .replace(/ğ/g, "g")
     .replace(/ü/g, "u")
     .replace(/ş/g, "s")
     .replace(/ö/g, "o")
-    .replace(/ç/g, "c")
-    .replace(/İ/g, "i");
+    .replace(/ç/g, "c");
 }
 
 function detectCategoryCode(url, details) {
@@ -80,8 +80,12 @@ function detectCategoryCode(url, details) {
   // Detect sale type from URL
   const isSale = urlLower.includes("satilik");
 
-  // Detect property type from URL slug or details
-  const emlakTipi = details && details["Emlak Tipi"] ? normalizeTurkish(details["Emlak Tipi"]) : "";
+  // Detect property type from URL slug or details (check multiple fields)
+  const emlakTipi = details ? normalizeTurkish(
+    (details["Emlak Tipi"] || "") + " " +
+    (details["Emlak Türü"] || "") + " " +
+    (details["Durumu"] || "")
+  ) : "";
   const combined = urlLower + " " + emlakTipi;
 
   const typeMap = isSale

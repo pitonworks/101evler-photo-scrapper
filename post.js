@@ -6,14 +6,14 @@ const { enrichMetadata } = require("./description-parser");
 
 function normalizeTurkish(str) {
   return str
+    .replace(/İ/g, "I")
     .toLowerCase()
     .replace(/ı/g, "i")
     .replace(/ğ/g, "g")
     .replace(/ü/g, "u")
     .replace(/ş/g, "s")
     .replace(/ö/g, "o")
-    .replace(/ç/g, "c")
-    .replace(/İ/g, "i");
+    .replace(/ç/g, "c");
 }
 
 // Turkish synonym pairs for select option matching
@@ -339,7 +339,7 @@ async function postListing(email, password, metadata, photoFiles, onProgress, op
     for (const [key, entry] of Object.entries(values)) {
       // Special handling for certain fields
       if (key === "il" && metadata.cityId) {
-        // City needs special AJAX cascade handling
+        // City needs special AJAX cascade handling: il → ilçe → mahalle
         const ilField = fieldMap["il"] || fieldMap["sehir"] || fieldMap["city"];
         if (ilField) {
           const ilName = ilField.name;
@@ -355,17 +355,17 @@ async function postListing(email, password, metadata, photoFiles, onProgress, op
           }, ilSelector, String(metadata.cityId));
           log(`  Set ${ilName} = ${metadata.cityId} (${metadata.cityName})`);
           log("  Waiting for ilce AJAX...");
-          await new Promise((r) => setTimeout(r, 3000));
+          // Wait for ilçe options to load via AJAX
+          await new Promise((r) => setTimeout(r, 4000));
           filledFields.push(key);
           continue;
         }
       }
 
       if (key === "ilce" && metadata.district) {
-        // İlçe is loaded via AJAX after il selection - try to find and fill it
+        // İlçe is loaded via AJAX after il selection
         log(`  Looking for ilce select after AJAX...`);
         try {
-          // Search for any select that now has options matching our district
           const ilceResult = await page.evaluate((district) => {
             const selects = document.querySelectorAll("select");
             for (const sel of selects) {
@@ -376,7 +376,6 @@ async function postListing(email, password, metadata, photoFiles, onProgress, op
                 if (optText.includes(distLower) || distLower.includes(optText)) {
                   sel.value = opt.value;
                   sel.dispatchEvent(new Event("change", { bubbles: true }));
-                  // jQuery trigger for AJAX cascade
                   if (typeof jQuery !== "undefined") {
                     jQuery(sel).val(opt.value).trigger("change");
                   }
@@ -390,6 +389,37 @@ async function postListing(email, password, metadata, photoFiles, onProgress, op
           if (ilceResult) {
             log(`  Set ${ilceResult.name} = ${metadata.district} (matched: ${ilceResult.text})`);
             filledFields.push(key);
+
+            // Wait for mahalle AJAX cascade after ilçe selection
+            log("  Waiting for mahalle AJAX...");
+            await new Promise((r) => setTimeout(r, 3000));
+
+            // Try to select first non-empty mahalle option
+            const mahalleResult = await page.evaluate(() => {
+              const selects = document.querySelectorAll("select");
+              for (const sel of selects) {
+                if (sel.name && sel.name.toLowerCase().includes("mahalle") && sel.options.length >= 2) {
+                  // Select first real option (skip placeholder)
+                  for (const opt of sel.options) {
+                    if (opt.value && opt.value !== "" && opt.value !== "0") {
+                      sel.value = opt.value;
+                      sel.dispatchEvent(new Event("change", { bubbles: true }));
+                      if (typeof jQuery !== "undefined") {
+                        jQuery(sel).val(opt.value).trigger("change");
+                      }
+                      return { name: sel.name, value: opt.value, text: opt.textContent.trim() };
+                    }
+                  }
+                }
+              }
+              return null;
+            });
+
+            if (mahalleResult) {
+              log(`  Set ${mahalleResult.name} = ${mahalleResult.text}`);
+            } else {
+              log("  No mahalle select found or no options available");
+            }
           } else {
             log(`  Warning: ilce "${metadata.district}" not found in AJAX-loaded options`);
             skippedFields.push(key);

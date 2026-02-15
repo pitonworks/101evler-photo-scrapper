@@ -12,14 +12,14 @@
 
 function normalizeTurkish(str) {
   return str
+    .replace(/İ/g, "I")
     .toLowerCase()
     .replace(/ı/g, "i")
     .replace(/ğ/g, "g")
     .replace(/ü/g, "u")
     .replace(/ş/g, "s")
     .replace(/ö/g, "o")
-    .replace(/ç/g, "c")
-    .replace(/İ/g, "i");
+    .replace(/ç/g, "c");
 }
 
 /**
@@ -153,8 +153,8 @@ const RESIDENTIAL_FIELDS = {
     source: "details.Eşya Durumu",
     sourceAlt: ["details.esya durumu", "details.eşyalı", "details.esyali"],
     default: "Belirtilmemiş",
-    // "-" from 101evler means not specified
-    valueMap: { "-": "Belirtilmemiş" },
+    // 101evler → gelgezgor eşya durumu eşleştirmesi
+    valueMap: { "-": "Belirtilmemiş", "Eşyasız": "Hayır", "Eşyalı": "Evet" },
     formNames: ["Esyali", "esyali", "eşyalı", "furnished"],
   },
   kullanim_durumu: {

@@ -22,6 +22,31 @@ function normalizeTurkish(str) {
     .replace(/İ/g, "i");
 }
 
+/**
+ * Map raw building age value to gelgezgor.com select options.
+ * Actual options: Belirtilmemiş, Proje Aşamasında, 1, 2, 3, 4, 5-10 arası, 11-15 arası, 16-20 arası, 21-25 arası, 26-30 arası, 31 ve üzeri
+ */
+function mapBinaYasi(raw) {
+  if (!raw) return "Belirtilmemiş";
+  const normalized = normalizeTurkish(String(raw).trim());
+
+  if (normalized === "belirtilmemis" || normalized === "-") return "Belirtilmemiş";
+  if (normalized.includes("proje")) return "Proje Aşamasında";
+  if (normalized === "sifir" || normalized === "yeni") return "Proje Aşamasında";
+
+  const num = parseInt(raw, 10);
+  if (isNaN(num)) return "Belirtilmemiş";
+
+  if (num === 0) return "Proje Aşamasında";
+  if (num >= 1 && num <= 4) return String(num);
+  if (num <= 10) return "5-10 arası";
+  if (num <= 15) return "11-15 arası";
+  if (num <= 20) return "16-20 arası";
+  if (num <= 25) return "21-25 arası";
+  if (num <= 30) return "26-30 arası";
+  return "31 ve üzeri";
+}
+
 // Shared field definitions to avoid repetition
 const COMMON_FIELDS = {
   baslik: {
@@ -75,14 +100,15 @@ const RESIDENTIAL_FIELDS = {
     required: true,
     source: "details.Oda Sayısı",
     sourceAlt: ["details.oda sayısı", "details.oda sayisi", "details.oda", "details.Oda"],
-    formNames: ["oda_sayisi", "oda", "rooms"],
+    formNames: ["Oda_sayisi", "oda_sayisi", "oda", "rooms"],
   },
   bina_yasi: {
     required: true,
     source: "details.Bina Yaşı",
     sourceAlt: ["details.bina yasi", "details.bina yaşı"],
     formNames: ["bina_yasi", "yasi"],
-    default: "0",
+    transform: mapBinaYasi,
+    default: "Belirtilmemiş",
   },
   kat_sayisi: {
     required: true,
@@ -129,7 +155,7 @@ const RESIDENTIAL_FIELDS = {
     default: "Belirtilmemiş",
     // "-" from 101evler means not specified
     valueMap: { "-": "Belirtilmemiş" },
-    formNames: ["esyali", "eşyalı", "furnished"],
+    formNames: ["Esyali", "esyali", "eşyalı", "furnished"],
   },
   kullanim_durumu: {
     required: true,
@@ -150,7 +176,7 @@ const RESIDENTIAL_FIELDS = {
     source: "details.Aidat",
     sourceAlt: ["details.aidat"],
     default: "-",
-    formNames: ["aidat"],
+    formNames: ["Aidat", "aidat"],
   },
   havuz: {
     required: true,
@@ -216,16 +242,32 @@ const PROFILES = {
   },
 
   land: {
-    label: "Arsa",
+    label: "Arsa / Tarla",
     katCodes: [101],
     fields: {
       ...COMMON_FIELDS,
-      tapu_turu: {
+      imar_durumu: {
+        required: true,
+        source: "_derived.imarDurumu",
+        default: "Konut",
+        formNames: ["imar_durumu"],
+      },
+      tapu_durumu: {
         required: true,
         source: "details.Tapu Türü",
-        sourceAlt: ["details.tapu turu", "details.tapu türü"],
-        default: "Koçan",
-        formNames: ["tapu_turu", "tapu_türü", "tapu"],
+        sourceAlt: ["details.tapu turu", "details.tapu türü", "details.tapu durumu", "details.Tapu Durumu"],
+        default: "Belirtilmemiş",
+        formNames: ["tapu_durumu"],
+      },
+      kat_izni: {
+        required: true,
+        default: "Belirtilmemiş",
+        formNames: ["kat_izni"],
+      },
+      imar_orani: {
+        required: true,
+        default: "Belirtilmemiş",
+        formNames: ["imar_orani"],
       },
       krediye_uygun: {
         required: true,
@@ -242,52 +284,42 @@ const PROFILES = {
       "oda_sayisi", "banyo_sayisi", "bina_yasi", "kat_sayisi",
       "bulundugu_kat", "esyali", "asansor", "balkon_sayisi",
       "isitma", "kullanim_durumu", "site_ici", "aidat",
-      "havuz", "otopark",
+      "havuz", "otopark", "tapu_turu", "kdv_trafo",
+      "arsa_metrekaresi",
     ],
   },
 
   commercial: {
-    label: "Ticari (Dükkan)",
+    label: "Ticari (Dükkan, İşyeri)",
     katCodes: [970],
     fields: {
-      ...COMMON_FIELDS,
-      bulundugu_kat: {
-        required: false,
-        source: "details.Bulunduğu Kat",
-        sourceAlt: ["details.bulundugu kat", "details.bulunduğu kat", "details.kat"],
-        formNames: ["bulundugu_kat", "kat"],
+      ...RESIDENTIAL_FIELDS,
+      // Dükkan: oda sayısı genelde belirsiz
+      oda_sayisi: {
+        ...RESIDENTIAL_FIELDS.oda_sayisi,
+        default: "Belirtilmemiş",
       },
-      kullanim_durumu: {
+      // Rental-specific fields (kat=970 formunda zorunlu)
+      depozito: {
         required: true,
-        source: "_derived.kullanimDurumu",
-        default: "Boş",
-        formNames: ["kullanim_durumu", "kullanım_durumu"],
+        default: "Belirtilmemiş",
+        formNames: ["Depozito", "depozito"],
       },
-      kimden: {
+      kiralama_suresi: {
         required: true,
-        default: "Emlak Ofisi",
-        formNames: ["kimden"],
+        default: "Belirtilmemiş",
+        formNames: ["Kiralamasüresi_", "kiralama_suresi", "kiralama"],
       },
-      tapu_turu: {
+      kira_odemesi: {
         required: true,
-        default: "Koçan",
-        formNames: ["tapu_turu", "tapu_türü", "tapu"],
-      },
-      krediye_uygun: {
-        required: true,
-        default: "Evet",
-        formNames: ["krediye_uygun", "kredi"],
-      },
-      takas: {
-        required: true,
-        default: "Hayır",
-        formNames: ["takas"],
+        default: "Belirtilmemiş",
+        formNames: ["Kira_odemesi", "kira_odemesi"],
       },
     },
+    // kat=970 formunda olmayan alanlar
     skippedFields: [
-      "oda_sayisi", "banyo_sayisi", "bina_yasi", "kat_sayisi",
-      "esyali", "asansor", "balkon_sayisi", "isitma",
-      "site_ici", "aidat", "havuz", "otopark",
+      "havuz", "krediye_uygun", "tapu_turu", "kdv_trafo", "takas",
+      "arsa_metrekaresi",
     ],
   },
 };
@@ -323,9 +355,13 @@ function deriveFields(metadata) {
     derived.isitma = "Klima";
   }
 
-  // Kullanım durumu: bina yaşı 0 ise Sıfır, değilse Boş
-  const binaYasi = details["Bina Yaşı"] || details["bina yaşı"] || details["bina yasi"] || "";
-  derived.kullanimDurumu = (binaYasi === "0" || binaYasi === "Sıfır") ? "Sıfır" : "Boş";
+  // Kullanım durumu: bina yaşı 0 veya proje aşamasında ise Sıfır, değilse Boş
+  const binaYasi = normalizeTurkish(
+    details["Bina Yaşı"] || details["bina yaşı"] || details["bina yasi"] || ""
+  );
+  derived.kullanimDurumu =
+    (binaYasi === "0" || binaYasi === "sifir" || binaYasi.includes("proje"))
+      ? "Sıfır" : "Boş";
 
   // Site içi: açıklamada site/complex/residence varsa Evet
   if (text.includes("site") || text.includes("complex") || text.includes("residence")) {
@@ -350,6 +386,22 @@ function deriveFields(metadata) {
     derived.otopark = "Kapalı ve Açık Otopark";
   } else {
     derived.otopark = "Açık Otopark";
+  }
+
+  // İmar durumu: arsa/tarla için URL/başlık/detaylardan tespit
+  if (metadata.katCode === 101) {
+    const combined = normalizeTurkish(
+      (metadata.baslik || "") + " " + JSON.stringify(metadata.details || {})
+    );
+    if (combined.includes("tarla")) {
+      derived.imarDurumu = "Tarla";
+    } else if (combined.includes("zeytinlik")) {
+      derived.imarDurumu = "Zeytinlik";
+    } else if (combined.includes("ticari")) {
+      derived.imarDurumu = "Ticari";
+    } else {
+      derived.imarDurumu = "Konut";
+    }
   }
 
   metadata._derived = derived;
@@ -439,6 +491,11 @@ function mapMetadataToForm(profile, metadata) {
       value = fieldDef.valueMap[value];
     }
 
+    // Apply transform function (e.g. bina yaşı range mapping)
+    if (fieldDef.transform) {
+      value = fieldDef.transform(value);
+    }
+
     // Apply default
     if ((value === undefined || value === null || value === "") && fieldDef.default) {
       value = fieldDef.default;
@@ -492,5 +549,6 @@ module.exports = {
   getSkippedFields,
   getAllProfiles,
   deriveFields,
+  mapBinaYasi,
   PROFILES,
 };

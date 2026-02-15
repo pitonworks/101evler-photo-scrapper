@@ -26,6 +26,21 @@ Eşyalı, Kullanım Durumu (bina yaşı 0→sıfır, yoksa boş), Site İçi (be
 Aidat (belirtilmezse "-"), Havuz (ortak/özel/belirtilmemiş), Otopark (default: açık),
 Krediye Uygun, Kimden (emlak ofisi), Tapu Türü, KDV-Trafo, Takas
 
+## gelgezgor.com Zorunlu Alanlar (Ticari/Dükkan — kat=970)
+Konut alanlarının TAMAMI + Depozito, Kiralama Süresi (Kiralamasüresi_), Kira Ödemesi (Kira_odemesi)
+Formda olmayan: havuz, krediye_uygun, tapu_turu, kdv_trafo, takas
+NOT: kat=970 kiralık formunu gösteriyor (depozito vb. zorunlu)
+
+## gelgezgor.com Zorunlu Alanlar (Arsa/Tarla — kat=101)
+Başlık, Fiyat, İl, İlçe, Metrekare, imar_durumu (21 seçenek), tapu_durumu (13 seçenek),
+kat_izni, imar_orani, krediye_uygun, kimden, takas
+Formda olmayan: tüm konut alanları (oda, banyo, kat, ısıtma vb.)
+Ek: ozellikler[] checkboxları (Elektrik, Su, Telefon vb. — şimdilik kullanılmıyor)
+
+## Bina Yaşı Eşleştirme (gelgezgor seçenekleri)
+Belirtilmemiş, Proje Aşamasında, 1, 2, 3, 4, "5-10 arası", "11-15 arası", "16-20 arası", "21-25 arası", "26-30 arası", "31 ve üzeri"
+DİKKAT: "arası" soneki var, eski "6-10" formatı yanlıştı
+
 ## Bilinen Sorunlar
 - gelgezgor.com jQuery kullanıyor (Trumbowyg + autoNumeric) → native DOM events yetmez, jQuery.trigger() gerekli
 - Photo upload: Puppeteer uploadFile() site'ın custom uploader plugin'iyle çalışmıyor → base64 + DataTransfer yaklaşımı kullanılıyor

@@ -1,5 +1,18 @@
 # Değişiklik Kaydı
 
+## 2026-02-15 (v3)
+### Düzeltildi
+- İşyeri/dükkan (kat=970) profili: eskiden residential alanları atlıyordu, formda aslında hepsi zorunluymuş
+- Arsa/tarla (kat=101) profili: yeni alanlar eklendi (imar_durumu, tapu_durumu, kat_izni, imar_orani)
+- mapBinaYasi: gelgezgor seçenekleriyle uyumlu hale getirildi ("5-10 arası" formatı, "0" → "Proje Aşamasında")
+- CATEGORY_MAP: "tarla", "isyeri" keyword'leri eklendi (satilik-tarla→101, satilik/kiralik-isyeri→970)
+- detectCategoryCode typeMap: "tarla" ve "isyeri" keyword'leri eklendi
+
+### Eklendi
+- Ticari profil: Depozito, Kiralama Süresi, Kira Ödemesi alanları
+- Arsa profili: İmar durumu otomatik tespiti (tarla/zeytinlik/ticari/konut)
+- Form alan adları: Oda_sayisi, Esyali, Aidat exact match eklendi
+
 ## 2026-02-15 (v2)
 ### Eklendi
 - form-profiles.js — Emlak tipi bazlı modüler form alan tanımları (residential, villa, land, commercial)

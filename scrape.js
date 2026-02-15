@@ -34,6 +34,7 @@ const CATEGORY_MAP = {
   "kiralik-penthouse": 19100,
   "kiralik-mustakil-ev": 914,
   "kiralik-dukkan": 970,
+  "kiralik-isyeri": 970,
   "satilik-daire": 901,
   "satilik-studio": 902,
   "satilik-mustakil-ev": 903,
@@ -41,6 +42,9 @@ const CATEGORY_MAP = {
   "satilik-ikiz-villa": 19633,
   "satilik-penthouse": 18260,
   "satilik-arsa": 101,
+  "satilik-tarla": 101,
+  "satilik-isyeri": 970,
+  "satilik-dukkan": 970,
 };
 
 // gelgezgor.com il kodları
@@ -81,8 +85,8 @@ function detectCategoryCode(url, details) {
   const combined = urlLower + " " + emlakTipi;
 
   const typeMap = isSale
-    ? { villa: 904, "ikiz villa": 19633, penthouse: 18260, studio: 902, "mustakil ev": 903, arsa: 101, daire: 901 }
-    : { villa: 915, penthouse: 19100, "mustakil ev": 914, dukkan: 970, daire: 912 };
+    ? { villa: 904, "ikiz villa": 19633, penthouse: 18260, studio: 902, "mustakil ev": 903, arsa: 101, tarla: 101, isyeri: 970, dukkan: 970, daire: 901 }
+    : { villa: 915, penthouse: 19100, "mustakil ev": 914, isyeri: 970, dukkan: 970, daire: 912 };
 
   for (const [type, code] of Object.entries(typeMap)) {
     if (combined.includes(type)) return code;

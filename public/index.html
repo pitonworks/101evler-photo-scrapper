@@ -17,7 +17,7 @@
     }
     .container {
       width: 100%;
-      max-width: 600px;
+      max-width: 700px;
     }
     h1 {
       font-size: 1.5rem;
@@ -61,7 +61,7 @@
       margin-bottom: 6px;
       color: #555;
     }
-    input[type="text"], input[type="email"], input[type="password"] {
+    input[type="text"], input[type="email"], input[type="password"], input[type="number"] {
       width: 100%;
       padding: 10px 12px;
       border: 1px solid #ddd;
@@ -70,7 +70,7 @@
       background: #fff;
       transition: border-color 0.2s;
     }
-    input[type="text"]:focus, input[type="email"]:focus, input[type="password"]:focus {
+    input[type="text"]:focus, input[type="email"]:focus, input[type="password"]:focus, input[type="number"]:focus {
       outline: none;
       border-color: #4a90d9;
     }
@@ -93,7 +93,7 @@
       cursor: not-allowed;
     }
     .log-area {
-      margin-top: 24px;
+      margin-top: 16px;
       background: #1e1e1e;
       color: #d4d4d4;
       border-radius: 6px;
@@ -101,7 +101,7 @@
       font-family: "Cascadia Code", "Fira Code", "Consolas", monospace;
       font-size: 0.825rem;
       line-height: 1.6;
-      max-height: 400px;
+      max-height: 300px;
       overflow-y: auto;
       display: none;
       white-space: pre-wrap;
@@ -126,7 +126,145 @@
       font-size: 0.875rem;
     }
 
-    /* Metadata preview */
+    .checkbox-group { margin-bottom: 12px; }
+    .checkbox-label {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      cursor: pointer;
+      font-size: 0.9rem;
+      color: #555;
+    }
+    .checkbox-label input[type="checkbox"] {
+      width: 18px;
+      height: 18px;
+      accent-color: #e67e22;
+    }
+
+    .btn-transfer {
+      background: #e67e22;
+    }
+    .btn-transfer:hover { background: #d35400; }
+    .btn-transfer:disabled {
+      background: #f0c08a;
+      cursor: not-allowed;
+    }
+
+    /* Queue styles */
+    .queue-controls {
+      display: flex;
+      gap: 8px;
+      margin-bottom: 16px;
+    }
+    .queue-controls button {
+      flex: 1;
+      margin-top: 0;
+    }
+    .btn-start { background: #27ae60; }
+    .btn-start:hover { background: #219a52; }
+    .btn-start:disabled { background: #a3d9b1; }
+    .btn-stop { background: #c0392b; }
+    .btn-stop:hover { background: #a93226; }
+    .btn-stop:disabled { background: #d9a5a0; }
+
+    .queue-status {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      padding: 10px 14px;
+      background: #fff;
+      border: 1px solid #ddd;
+      border-radius: 6px;
+      margin-bottom: 16px;
+      font-size: 0.875rem;
+    }
+    .status-dot {
+      width: 10px;
+      height: 10px;
+      border-radius: 50%;
+      background: #bbb;
+      flex-shrink: 0;
+    }
+    .status-dot.idle { background: #bbb; }
+    .status-dot.running { background: #27ae60; animation: pulse 1.5s infinite; }
+    .status-dot.stopping { background: #e67e22; animation: pulse 1s infinite; }
+    @keyframes pulse {
+      0%, 100% { opacity: 1; }
+      50% { opacity: 0.4; }
+    }
+    .status-text { flex: 1; color: #555; }
+    .status-counts { color: #888; font-size: 0.8rem; }
+
+    .queue-list {
+      margin-bottom: 16px;
+    }
+    .queue-item {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      padding: 10px 14px;
+      background: #fff;
+      border: 1px solid #eee;
+      border-radius: 6px;
+      margin-bottom: 6px;
+      font-size: 0.85rem;
+      transition: border-color 0.2s;
+    }
+    .queue-item.processing { border-color: #4a90d9; background: #f0f7ff; }
+    .queue-item.done { opacity: 0.6; }
+    .queue-item.failed { border-color: #e74c3c; background: #fdf2f2; }
+
+    .qi-icon {
+      font-size: 1rem;
+      flex-shrink: 0;
+      width: 20px;
+      text-align: center;
+    }
+    .qi-url {
+      flex: 1;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+      color: #333;
+    }
+    .qi-actions {
+      display: flex;
+      gap: 4px;
+      flex-shrink: 0;
+    }
+    .qi-actions button {
+      width: auto;
+      padding: 4px 10px;
+      margin: 0;
+      font-size: 0.75rem;
+      border-radius: 4px;
+    }
+    .btn-retry { background: #e67e22; }
+    .btn-retry:hover { background: #d35400; }
+    .btn-delete { background: #888; }
+    .btn-delete:hover { background: #666; }
+
+    .queue-add-row {
+      display: flex;
+      gap: 8px;
+      margin-bottom: 16px;
+    }
+    .queue-add-row input { flex: 1; }
+    .btn-add {
+      width: auto;
+      padding: 10px 20px;
+      margin-top: 0;
+      white-space: nowrap;
+    }
+
+    .queue-empty {
+      text-align: center;
+      padding: 24px;
+      color: #aaa;
+      font-size: 0.9rem;
+    }
+
+    /* Dry run result */
     .metadata-preview {
       margin-top: 16px;
       background: #fff;
@@ -150,36 +288,12 @@
     .metadata-preview .meta-row:last-child { border-bottom: none; }
     .metadata-preview .meta-label { color: #888; }
     .metadata-preview .meta-value { font-weight: 500; }
-
-    .checkbox-group { margin-bottom: 12px; }
-    .checkbox-label {
-      display: flex;
-      align-items: center;
-      gap: 8px;
-      cursor: pointer;
-      font-size: 0.9rem;
-      color: #555;
-    }
-    .checkbox-label input[type="checkbox"] {
-      width: 18px;
-      height: 18px;
-      accent-color: #e67e22;
-    }
     .metadata-preview h4 {
       font-size: 0.85rem;
       margin-bottom: 6px;
     }
 
-    .btn-transfer {
-      background: #e67e22;
-    }
-    .btn-transfer:hover { background: #d35400; }
-    .btn-transfer:disabled {
-      background: #f0c08a;
-      cursor: not-allowed;
-    }
-
-    /* Modal styles (kept from original) */
+    /* Modal styles */
     .modal-overlay {
       display: none;
       position: fixed;
@@ -306,9 +420,10 @@
     <div class="tabs">
       <div class="tab active" onclick="switchTab('scraper')">Photo Scraper</div>
       <div class="tab" onclick="switchTab('transfer')">Listing Transfer</div>
+      <div class="tab" onclick="switchTab('queue')">Queue</div>
     </div>
 
-    <!-- Tab 1: Photo Scraper (existing) -->
+    <!-- Tab 1: Photo Scraper -->
     <div id="tab-scraper" class="tab-content active">
       <div class="form-group">
         <label for="url">101evler Link</label>
@@ -325,7 +440,7 @@
       <div id="log" class="log-area"></div>
     </div>
 
-    <!-- Tab 2: Listing Transfer -->
+    <!-- Tab 2: Listing Transfer (single) -->
     <div id="tab-transfer" class="tab-content">
       <div class="form-group">
         <label for="transferUrl">101evler Link</label>
@@ -340,20 +455,16 @@
         <input type="password" id="ggPassword" placeholder="Password">
       </div>
       <div class="form-group">
-        <label for="maxPhotos">Max Foto (boş = hepsi)</label>
-        <input type="text" id="maxPhotos" placeholder="örn: 5">
+        <label for="maxPhotos">Max Foto (bos = hepsi)</label>
+        <input type="text" id="maxPhotos" placeholder="orn: 5">
       </div>
       <div class="form-group checkbox-group">
         <label class="checkbox-label">
           <input type="checkbox" id="dryRunCheck">
-          <span>Dry Run (formu doldur ama gönderme)</span>
+          <span>Dry Run (formu doldur ama gonderme)</span>
         </label>
       </div>
       <button id="transferBtn" class="btn-transfer" onclick="startTransfer()">Transfer Listing</button>
-      <div id="metadataPreview" class="metadata-preview">
-        <h3>Scraped Metadata</h3>
-        <div id="metadataContent"></div>
-      </div>
       <div id="dryRunResult" class="metadata-preview" style="display:none">
         <h3>Dry Run Sonucu</h3>
         <div id="dryRunProfile"></div>
@@ -369,6 +480,58 @@
         </div>
       </div>
       <div id="transferLog" class="log-area"></div>
+    </div>
+
+    <!-- Tab 3: Queue -->
+    <div id="tab-queue" class="tab-content">
+      <!-- Credentials -->
+      <div class="form-group">
+        <label for="qEmail">gelgezgor.com Email</label>
+        <input type="email" id="qEmail" placeholder="email@example.com">
+      </div>
+      <div class="form-group">
+        <label for="qPassword">gelgezgor.com Password</label>
+        <input type="password" id="qPassword" placeholder="Password">
+      </div>
+      <div style="display:flex;gap:12px;margin-bottom:16px">
+        <div class="form-group" style="flex:1;margin-bottom:0">
+          <label for="qMaxPhotos">Max Foto</label>
+          <input type="number" id="qMaxPhotos" placeholder="hepsi">
+        </div>
+        <div class="form-group" style="flex:1;margin-bottom:0">
+          <label class="checkbox-label" style="margin-top:24px">
+            <input type="checkbox" id="qDryRun">
+            <span>Dry Run</span>
+          </label>
+        </div>
+      </div>
+
+      <!-- Add URL -->
+      <div class="queue-add-row">
+        <input type="text" id="qUrlInput" placeholder="https://www.101evler.com/... (birden fazla icin virgul ile ayirin)">
+        <button class="btn-add" onclick="addToQueue()">Ekle</button>
+      </div>
+
+      <!-- Controls -->
+      <div class="queue-controls">
+        <button class="btn-start" id="qStartBtn" onclick="startQueue()">Islemeyi Baslat</button>
+        <button class="btn-stop" id="qStopBtn" onclick="stopQueue()" disabled>Durdur</button>
+      </div>
+
+      <!-- Status -->
+      <div class="queue-status">
+        <div class="status-dot" id="qStatusDot"></div>
+        <span class="status-text" id="qStatusText">Bosta</span>
+        <span class="status-counts" id="qStatusCounts"></span>
+      </div>
+
+      <!-- Queue list -->
+      <div class="queue-list" id="queueList">
+        <div class="queue-empty">Kuyrukta ilan yok</div>
+      </div>
+
+      <!-- Live log -->
+      <div id="queueLog" class="log-area"></div>
     </div>
   </div>
 
@@ -398,13 +561,16 @@
       document.querySelectorAll('.tab').forEach(t => t.classList.remove('active'));
       document.querySelectorAll('.tab-content').forEach(t => t.classList.remove('active'));
       document.getElementById('tab-' + tabName).classList.add('active');
-      // Find the tab button
       const tabs = document.querySelectorAll('.tab');
       if (tabName === 'scraper') tabs[0].classList.add('active');
-      else tabs[1].classList.add('active');
+      else if (tabName === 'transfer') tabs[1].classList.add('active');
+      else if (tabName === 'queue') tabs[2].classList.add('active');
+
+      // Load queue data when switching to queue tab
+      if (tabName === 'queue') loadQueueData();
     }
 
-    // ==================== Folder Browser (existing) ====================
+    // ==================== Folder Browser ====================
     let currentBrowsePath = "";
 
     async function openBrowser() {
@@ -420,13 +586,11 @@
     function renderShortcuts(drives) {
       const bar = document.getElementById("shortcutsBar");
       bar.innerHTML = "";
-
       const homeBtn = document.createElement("button");
       homeBtn.className = "shortcut-btn";
       homeBtn.textContent = "Home";
       homeBtn.onclick = () => loadFolder();
       bar.appendChild(homeBtn);
-
       for (const drive of drives) {
         const btn = document.createElement("button");
         btn.className = "shortcut-btn";
@@ -446,15 +610,11 @@
           alert(data.error);
           return;
         }
-
         currentBrowsePath = data.current;
         document.getElementById("modalPath").textContent = data.current;
-
         if (data.drives) renderShortcuts(data.drives);
-
         const list = document.getElementById("folderList");
         list.innerHTML = "";
-
         const parent = document.createElement("div");
         parent.className = "folder-item parent";
         parent.textContent = ".. (parent folder)";
@@ -463,7 +623,6 @@
           loadFolder(parentPath);
         };
         list.appendChild(parent);
-
         for (const name of data.folders) {
           const item = document.createElement("div");
           item.className = "folder-item";
@@ -577,69 +736,41 @@
       btn.textContent = "Start";
     }
 
-    // ==================== Listing Transfer ====================
+    // ==================== Listing Transfer (single) ====================
     // Save/restore email from localStorage
     const savedEmail = localStorage.getItem("gg_email");
     if (savedEmail) {
       document.addEventListener("DOMContentLoaded", () => {
         const el = document.getElementById("ggEmail");
         if (el) el.value = savedEmail;
+        const qEl = document.getElementById("qEmail");
+        if (qEl) qEl.value = savedEmail;
       });
-      // Also set immediately if DOM is ready
       const emailEl = document.getElementById("ggEmail");
       if (emailEl) emailEl.value = savedEmail;
-    }
-
-    function showMetadata(metadata, photoCount) {
-      const preview = document.getElementById("metadataPreview");
-      const content = document.getElementById("metadataContent");
-      preview.style.display = "block";
-
-      const rows = [
-        ["Title", metadata.baslik || "-"],
-        ["Price", `${metadata.fiyat || "-"} ${metadata.paraBirimi || ""}`],
-        ["Type", metadata.saleType === "satilik" ? "Satilik" : "Kiralik"],
-        ["City", metadata.cityName || "-"],
-        ["Category", `kat=${metadata.katCode}`],
-        ["Photos", photoCount + " downloaded"],
-      ];
-
-      // Add details if available
-      if (metadata.details) {
-        for (const [key, val] of Object.entries(metadata.details)) {
-          if (val && rows.length < 12) {
-            rows.push([key, val]);
-          }
-        }
-      }
-
-      content.innerHTML = rows.map(([label, value]) =>
-        `<div class="meta-row"><span class="meta-label">${label}</span><span class="meta-value">${value}</span></div>`
-      ).join("");
+      const qEmailEl = document.getElementById("qEmail");
+      if (qEmailEl) qEmailEl.value = savedEmail;
     }
 
     function showDryRunResult(data) {
       const container = document.getElementById("dryRunResult");
       container.style.display = "block";
 
-      // Profile info
       document.getElementById("dryRunProfile").innerHTML =
         `<div class="meta-row"><span class="meta-label">Profil</span><span class="meta-value">${data.profile.label}</span></div>` +
         `<div class="meta-row"><span class="meta-label">Tip</span><span class="meta-value">${data.profile.type}</span></div>` +
         `<div class="meta-row"><span class="meta-label">Form alanlari</span><span class="meta-value">${data.discoveredFields.length} kesfedildi</span></div>`;
 
-      // Mapped values
       const valuesHtml = Object.entries(data.mappedValues).map(([key, val]) => {
         const filled = data.filledFields.includes(key);
         const displayVal = key === "aciklama" ? val.substring(0, 80) + "..." : val;
         return `<div class="meta-row">
-          <span class="meta-label">${key} ${filled ? "✓" : "✗"}</span>
+          <span class="meta-label">${key} ${filled ? "+" : "-"}</span>
           <span class="meta-value" style="color:${filled ? "#27ae60" : "#e74c3c"}">${displayVal}</span>
         </div>`;
       }).join("");
       document.getElementById("dryRunValues").innerHTML = valuesHtml;
 
-      // Warnings
       const warningsEl = document.getElementById("dryRunWarnings");
       if (data.warnings && data.warnings.length > 0) {
         warningsEl.style.display = "block";
@@ -649,7 +780,6 @@
         warningsEl.style.display = "none";
       }
 
-      // Skipped fields
       const skippedEl = document.getElementById("dryRunSkipped");
       if (data.skippedFields && data.skippedFields.length > 0) {
         skippedEl.style.display = "block";
@@ -668,19 +798,16 @@
       const maxPhotos = document.getElementById("maxPhotos").value.trim();
       const btn = document.getElementById("transferBtn");
       const log = document.getElementById("transferLog");
-      const preview = document.getElementById("metadataPreview");
       const dryRunResult = document.getElementById("dryRunResult");
 
       if (!url) { alert("Please enter a 101evler URL."); return; }
       if (!email) { alert("Please enter gelgezgor email."); return; }
       if (!password) { alert("Please enter gelgezgor password."); return; }
 
-      // Save email
       localStorage.setItem("gg_email", email);
 
       log.style.display = "block";
       log.innerHTML = "";
-      preview.style.display = "none";
       dryRunResult.style.display = "none";
       btn.disabled = true;
       btn.textContent = dryRun ? "Running Dry Run..." : "Transferring...";
@@ -696,7 +823,6 @@
           phase: (data) => appendLog(log, `--- ${data.message} ---`, "phase"),
           scraped: (data) => {
             appendLog(log, "Metadata scraped successfully!", "done");
-            showMetadata(data.metadata, data.photoCount);
           },
           dryrun: (data) => {
             appendLog(log, "Dry run completed!", "done");
@@ -726,6 +852,228 @@
       btn.disabled = false;
       btn.textContent = "Transfer Listing";
     }
+
+    // ==================== Queue ====================
+    let queueSSE = null;
+
+    function getStatusIcon(status) {
+      switch (status) {
+        case "done": return '<span style="color:#27ae60">&#x25CF;</span>';
+        case "processing": return '<span style="color:#4a90d9">&#x25C9;</span>';
+        case "pending": return '<span style="color:#bbb">&#x25CB;</span>';
+        case "failed": return '<span style="color:#e74c3c">&#x2715;</span>';
+        default: return "?";
+      }
+    }
+
+    function renderQueueList(items) {
+      const list = document.getElementById("queueList");
+      if (!items || items.length === 0) {
+        list.innerHTML = '<div class="queue-empty">Kuyrukta ilan yok</div>';
+        return;
+      }
+
+      list.innerHTML = items.map(item => {
+        const shortUrl = item.url.replace("https://www.101evler.com/", "");
+        let actions = "";
+        if (item.status === "pending") {
+          actions = `<button class="btn-delete" onclick="deleteQueueItem('${item.id}')">Sil</button>`;
+        } else if (item.status === "failed") {
+          actions = `<button class="btn-retry" onclick="retryQueueItem('${item.id}')">Tekrar</button>` +
+            `<button class="btn-delete" onclick="deleteQueueItem('${item.id}')">Sil</button>`;
+        }
+        const errorInfo = item.error ? ` title="${item.error}"` : "";
+        return `<div class="queue-item ${item.status}"${errorInfo}>
+          <span class="qi-icon">${getStatusIcon(item.status)}</span>
+          <span class="qi-url" title="${item.url}">${shortUrl}</span>
+          <span style="font-size:0.75rem;color:#888;text-transform:uppercase">${item.status}</span>
+          <span class="qi-actions">${actions}</span>
+        </div>`;
+      }).join("");
+    }
+
+    function updateQueueStatus(status) {
+      const dot = document.getElementById("qStatusDot");
+      const text = document.getElementById("qStatusText");
+      const counts = document.getElementById("qStatusCounts");
+      const startBtn = document.getElementById("qStartBtn");
+      const stopBtn = document.getElementById("qStopBtn");
+
+      if (status.running) {
+        dot.className = "status-dot running";
+        text.textContent = "Isleniyor...";
+        startBtn.disabled = true;
+        stopBtn.disabled = false;
+      } else {
+        dot.className = "status-dot idle";
+        text.textContent = "Bosta";
+        startBtn.disabled = false;
+        stopBtn.disabled = true;
+      }
+
+      const parts = [];
+      if (status.done) parts.push(status.done + " tamamlandi");
+      if (status.processing) parts.push(status.processing + " isleniyor");
+      if (status.pending) parts.push(status.pending + " bekliyor");
+      if (status.failed) parts.push(status.failed + " basarisiz");
+      counts.textContent = parts.length ? parts.join(" / ") : "";
+    }
+
+    async function safeJson(res) {
+      const text = await res.text();
+      try {
+        return JSON.parse(text);
+      } catch (e) {
+        throw new Error(res.ok ? "Invalid JSON response" : `Server error ${res.status}`);
+      }
+    }
+
+    async function loadQueueData() {
+      try {
+        const res = await fetch("/queue");
+        const data = await safeJson(res);
+        renderQueueList(data.items);
+        updateQueueStatus(data.status);
+      } catch (err) {
+        console.error("Failed to load queue:", err);
+      }
+    }
+
+    function connectQueueSSE() {
+      if (queueSSE) {
+        queueSSE.close();
+      }
+      queueSSE = new EventSource("/queue/progress");
+      queueSSE.onmessage = (event) => {
+        try {
+          const data = JSON.parse(event.data);
+          const logEl = document.getElementById("queueLog");
+
+          switch (data.event) {
+            case "worker-status":
+              updateQueueStatus(data);
+              if (data.status === "stopped" || data.status === "idle") {
+                loadQueueData();
+              }
+              break;
+            case "item-start":
+              appendLog(logEl, `--- Isleniyor: ${data.url} ---`, "phase");
+              loadQueueData();
+              break;
+            case "item-done":
+              appendLog(logEl, `Tamamlandi: ${data.itemId}`, "done");
+              loadQueueData();
+              break;
+            case "item-failed":
+              appendLog(logEl, `Basarisiz: ${data.itemId} - ${data.error}`, "error");
+              loadQueueData();
+              break;
+            case "log":
+              appendLog(logEl, data.message, "progress");
+              break;
+            case "queue-updated":
+              loadQueueData();
+              break;
+          }
+        } catch (e) {
+          // ignore
+        }
+      };
+      queueSSE.onerror = () => {
+        // EventSource will auto-reconnect
+      };
+    }
+
+    async function addToQueue() {
+      const input = document.getElementById("qUrlInput");
+      const raw = input.value.trim();
+      if (!raw) { alert("URL girin."); return; }
+
+      // Split by comma, newline, or space (for multiple URLs)
+      const urls = raw.split(/[,\n\s]+/).map(u => u.trim()).filter(u => u.startsWith("http"));
+      if (urls.length === 0) { alert("Gecerli URL girin."); return; }
+
+      try {
+        const res = await fetch("/queue", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ urls })
+        });
+        const data = await safeJson(res);
+        if (data.error) { alert(data.error); return; }
+        input.value = "";
+        loadQueueData();
+      } catch (err) {
+        alert("Hata: " + err.message);
+      }
+    }
+
+    async function deleteQueueItem(id) {
+      try {
+        const res = await fetch("/queue/" + id, { method: "DELETE" });
+        const data = await safeJson(res);
+        if (data.error) { alert(data.error); return; }
+        loadQueueData();
+      } catch (err) {
+        alert("Hata: " + err.message);
+      }
+    }
+
+    async function retryQueueItem(id) {
+      try {
+        const res = await fetch("/queue/" + id + "/retry", { method: "POST" });
+        const data = await safeJson(res);
+        if (data.error) { alert(data.error); return; }
+        loadQueueData();
+      } catch (err) {
+        alert("Hata: " + err.message);
+      }
+    }
+
+    async function startQueue() {
+      const email = document.getElementById("qEmail").value.trim();
+      const password = document.getElementById("qPassword").value.trim();
+      const dryRun = document.getElementById("qDryRun").checked;
+      const maxPhotos = document.getElementById("qMaxPhotos").value.trim();
+
+      if (!email) { alert("Email girin."); return; }
+      if (!password) { alert("Sifre girin."); return; }
+
+      localStorage.setItem("gg_email", email);
+
+      // Clear log
+      const logEl = document.getElementById("queueLog");
+      logEl.style.display = "block";
+      logEl.innerHTML = "";
+
+      try {
+        const res = await fetch("/queue/start", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ email, password, dryRun, maxPhotos: maxPhotos || undefined })
+        });
+        const data = await safeJson(res);
+        if (data.error) { alert(data.error); return; }
+      } catch (err) {
+        alert("Hata: " + err.message);
+      }
+    }
+
+    async function stopQueue() {
+      try {
+        const res = await fetch("/queue/stop", { method: "POST" });
+        const data = await safeJson(res);
+        if (data.error) { alert(data.error); return; }
+        document.getElementById("qStopBtn").disabled = true;
+      } catch (err) {
+        alert("Hata: " + err.message);
+      }
+    }
+
+    // Initialize SSE connection for queue
+    connectQueueSSE();
+    // Load initial queue data
+    loadQueueData();
   </script>
 </body>
 </html>

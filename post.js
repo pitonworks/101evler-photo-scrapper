@@ -16,6 +16,15 @@ function normalizeTurkish(str) {
     .replace(/İ/g, "i");
 }
 
+// Turkish synonym pairs for select option matching
+const TURKISH_SYNONYMS = {
+  hayir: ["yok"],
+  yok: ["hayir"],
+  evet: ["var"],
+  var: ["evet"],
+  belirtilmemis: ["bilinmiyor"],
+};
+
 /**
  * Find the best matching option in a <select> by fuzzy Turkish text matching
  */
@@ -24,6 +33,14 @@ function fuzzyMatchOption(options, target) {
   // Exact match first
   for (const opt of options) {
     if (normalizeTurkish(opt.text) === normalizedTarget) return opt.value;
+  }
+  // Synonym match (Hayır↔Yok, Evet↔Var, etc.)
+  const synonyms = TURKISH_SYNONYMS[normalizedTarget] || [];
+  for (const opt of options) {
+    const normText = normalizeTurkish(opt.text);
+    for (const syn of synonyms) {
+      if (normText === syn) return opt.value;
+    }
   }
   // Contains match
   for (const opt of options) {
@@ -222,7 +239,20 @@ async function postListing(email, password, metadata, photoFiles, onProgress, op
               jQuery(el).val(val).trigger("change");
             }
           }, selector, matchedValue);
-          log(`  Set ${name} = ${value} (matched: ${matchedValue})`);
+          // Verify the value was actually set
+          const actualValue = await page.evaluate((sel) => {
+            const el = document.querySelector(sel);
+            return el ? el.value : null;
+          }, selector);
+          if (!actualValue || actualValue === "" || actualValue === "0") {
+            const optTexts = options
+              .filter(o => o.value && o.value !== "0" && o.value !== "")
+              .map(o => `"${o.text}"(${o.value})`)
+              .slice(0, 10);
+            log(`  WARNING: ${name} value not set! Tried "${value}" → "${matchedValue}". Options: ${optTexts.join(", ")}`);
+          } else {
+            log(`  Set ${name} = ${value} (matched: ${matchedValue})`);
+          }
         } else if (fieldMap[name].tag === "textarea") {
           await page.evaluate(
             (sel, val) => {

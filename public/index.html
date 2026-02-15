@@ -1,0 +1,168 @@
+<!DOCTYPE html>
+<html lang="tr">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>101evler Photo Scraper</title>
+  <style>
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+      background: #f5f5f5;
+      color: #333;
+      min-height: 100vh;
+      display: flex;
+      justify-content: center;
+      padding: 40px 20px;
+    }
+    .container {
+      width: 100%;
+      max-width: 600px;
+    }
+    h1 {
+      font-size: 1.5rem;
+      margin-bottom: 24px;
+      color: #1a1a1a;
+    }
+    .form-group {
+      margin-bottom: 16px;
+    }
+    label {
+      display: block;
+      font-size: 0.875rem;
+      font-weight: 500;
+      margin-bottom: 6px;
+      color: #555;
+    }
+    input[type="text"] {
+      width: 100%;
+      padding: 10px 12px;
+      border: 1px solid #ddd;
+      border-radius: 6px;
+      font-size: 0.95rem;
+      background: #fff;
+      transition: border-color 0.2s;
+    }
+    input[type="text"]:focus {
+      outline: none;
+      border-color: #4a90d9;
+    }
+    button {
+      width: 100%;
+      padding: 12px;
+      background: #4a90d9;
+      color: #fff;
+      border: none;
+      border-radius: 6px;
+      font-size: 1rem;
+      font-weight: 500;
+      cursor: pointer;
+      margin-top: 8px;
+      transition: background 0.2s;
+    }
+    button:hover { background: #3a7bc8; }
+    button:disabled {
+      background: #a0c4e8;
+      cursor: not-allowed;
+    }
+    #log {
+      margin-top: 24px;
+      background: #1e1e1e;
+      color: #d4d4d4;
+      border-radius: 6px;
+      padding: 16px;
+      font-family: "Cascadia Code", "Fira Code", "Consolas", monospace;
+      font-size: 0.825rem;
+      line-height: 1.6;
+      max-height: 400px;
+      overflow-y: auto;
+      display: none;
+      white-space: pre-wrap;
+      word-break: break-all;
+    }
+    #log .progress { color: #9cdcfe; }
+    #log .done { color: #6a9955; font-weight: bold; }
+    #log .error { color: #f44747; }
+  </style>
+</head>
+<body>
+  <div class="container">
+    <h1>101evler Photo Scraper</h1>
+    <div class="form-group">
+      <label for="url">101evler Link</label>
+      <input type="text" id="url" placeholder="https://www.101evler.com/...">
+    </div>
+    <div class="form-group">
+      <label for="outputDir">Download Folder</label>
+      <input type="text" id="outputDir" value="./downloads">
+    </div>
+    <button id="startBtn" onclick="startScrape()">Start</button>
+    <div id="log"></div>
+  </div>
+
+  <script>
+    function appendLog(text, className) {
+      const log = document.getElementById("log");
+      const line = document.createElement("div");
+      line.textContent = text;
+      if (className) line.className = className;
+      log.appendChild(line);
+      log.scrollTop = log.scrollHeight;
+    }
+
+    async function startScrape() {
+      const url = document.getElementById("url").value.trim();
+      const outputDir = document.getElementById("outputDir").value.trim();
+      const btn = document.getElementById("startBtn");
+      const log = document.getElementById("log");
+
+      if (!url) { alert("Please enter a URL."); return; }
+      if (!outputDir) { alert("Please enter a download folder."); return; }
+
+      log.style.display = "block";
+      log.innerHTML = "";
+      btn.disabled = true;
+      btn.textContent = "Running...";
+
+      try {
+        const response = await fetch("/scrape", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ url, outputDir })
+        });
+
+        const reader = response.body.getReader();
+        const decoder = new TextDecoder();
+        let buffer = "";
+
+        while (true) {
+          const { done, value } = await reader.read();
+          if (done) break;
+
+          buffer += decoder.decode(value, { stream: true });
+          const lines = buffer.split("\n");
+          buffer = lines.pop();
+
+          for (const line of lines) {
+            if (!line.startsWith("data: ")) continue;
+            const data = JSON.parse(line.slice(6));
+
+            if (data.type === "progress") {
+              appendLog(data.message, "progress");
+            } else if (data.type === "done") {
+              appendLog(`Completed: ${data.downloaded}/${data.total} photos downloaded.`, "done");
+            } else if (data.type === "error") {
+              appendLog(`Error: ${data.message}`, "error");
+            }
+          }
+        }
+      } catch (err) {
+        appendLog(`Connection error: ${err.message}`, "error");
+      }
+
+      btn.disabled = false;
+      btn.textContent = "Start";
+    }
+  </script>
+</body>
+</html>

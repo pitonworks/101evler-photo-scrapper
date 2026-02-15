@@ -81,12 +81,13 @@ function detectCategoryCode(url, details) {
   const isSale = urlLower.includes("satilik");
 
   // Detect property type from URL slug or details (check multiple fields)
+  // Replace hyphens with spaces so "ikiz-villa" matches "ikiz villa"
   const emlakTipi = details ? normalizeTurkish(
     (details["Emlak Tipi"] || "") + " " +
     (details["Emlak Türü"] || "") + " " +
     (details["Durumu"] || "")
   ) : "";
-  const combined = urlLower + " " + emlakTipi;
+  const combined = urlLower.replace(/-/g, " ") + " " + emlakTipi;
 
   const typeMap = isSale
     ? { villa: 904, "ikiz villa": 19633, penthouse: 18260, studio: 902, "mustakil ev": 903, arsa: 101, tarla: 101, isyeri: 970, dukkan: 970, daire: 901 }
@@ -156,18 +157,29 @@ async function scrapeListing(url, tmpDir, onProgress) {
         else paraBirimi = "GBP";
       }
 
-      // Description - try w-richtext or ilan-aciklama blocks
+      // Description - try multiple selectors
+      // 101evler uses .f-s-16 inside .div-block-361 for description
       let aciklama = "";
       let descriptionText = "";
-      const descEl = document.querySelector(".w-richtext, [class*='ilan-aciklama'], [class*='description']");
-      if (descEl) {
-        aciklama = descEl.innerHTML.trim();
-        descriptionText = descEl.textContent.trim();
+      const descSelectors = [
+        ".div-block-361 .f-s-16",
+        ".f-s-16",
+        ".w-richtext",
+        "[class*='ilan-aciklama']",
+        ".col-10",
+      ];
+      for (const sel of descSelectors) {
+        const el = document.querySelector(sel);
+        if (el && el.textContent.trim().length > 20) {
+          aciklama = el.innerHTML.trim();
+          descriptionText = el.textContent.trim();
+          break;
+        }
       }
 
-      // Detail rows from .text-block-141 (label + value pairs)
+      // Detail rows from .text-block-141 and .ilandetaycomponent (label + value pairs)
       const details = {};
-      document.querySelectorAll(".text-block-141").forEach((el) => {
+      document.querySelectorAll(".text-block-141, .ilandetaycomponent").forEach((el) => {
         const parts = el.textContent.trim().split("\n").map(s => s.trim()).filter(Boolean);
         if (parts.length >= 2) {
           details[parts[0]] = parts[1];

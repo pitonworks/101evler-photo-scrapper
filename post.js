@@ -610,70 +610,115 @@ async function postListing(email, password, metadata, photoFiles, onProgress, op
       return dryRunResult;
     }
 
-    // Upload photos one by one using base64 + DataTransfer approach
-    // (Puppeteer's uploadFile() hangs with custom uploader plugins)
+    // Upload photos using Puppeteer's native uploadFile + AJAX completion detection
     const maxPhotos = options.maxPhotos !== undefined ? options.maxPhotos : photoFiles.length;
     if (photoFiles && photoFiles.length > 0 && maxPhotos > 0) {
       const filesToUpload = photoFiles.slice(0, maxPhotos);
       log(`Uploading ${filesToUpload.length} photos (of ${photoFiles.length} total)...`);
 
+      // Count existing thumbnails before uploads start
+      const initialThumbCount = await page.evaluate(() => {
+        return document.querySelectorAll(".gorsel-onizleme img, .upload-preview img, [class*='thumb'] img, [class*='preview'] img, .gorsel_kutu img").length;
+      });
+      log(`  Initial thumbnails on page: ${initialThumbCount}`);
+
       for (let i = 0; i < filesToUpload.length; i++) {
         const filePath = filesToUpload[i];
         const fileName = path.basename(filePath);
-        log(`  [${i + 1}/${filesToUpload.length}] Uploading ${fileName}...`);
+        const fileSize = fs.statSync(filePath).size;
+        log(`  [${i + 1}/${filesToUpload.length}] Uploading ${fileName} (${(fileSize / 1024).toFixed(0)} KB)...`);
 
         try {
-          const fileBuffer = fs.readFileSync(filePath);
-          const fileBase64 = fileBuffer.toString("base64");
-          const mimeType = fileName.endsWith(".png") ? "image/png" : "image/jpeg";
+          // Find fresh file input each iteration (site may recreate it after each upload)
+          const inputHandle = await page.$('input[type="file"]');
+          if (!inputHandle) {
+            log(`  [${i + 1}/${filesToUpload.length}] Warning: no file input found, skipping`);
+            continue;
+          }
 
-          const uploadResult = await page.evaluate(async ({ base64, name, mime }) => {
-            const input = document.querySelector('input[type="file"], input[name="files[]"]');
-            if (!input) return { ok: false, error: "no file input found" };
+          // Use native Puppeteer uploadFile - much faster than base64
+          await inputHandle.uploadFile(filePath);
 
-            // Decode base64 to binary
-            const byteChars = atob(base64);
-            const byteArrays = [];
-            for (let offset = 0; offset < byteChars.length; offset += 1024) {
-              const slice = byteChars.slice(offset, offset + 1024);
-              const byteNumbers = new Array(slice.length);
-              for (let j = 0; j < slice.length; j++) {
-                byteNumbers[j] = slice.charCodeAt(j);
-              }
-              byteArrays.push(new Uint8Array(byteNumbers));
-            }
-            const blob = new Blob(byteArrays, { type: mime });
-            const file = new File([blob], name, { type: mime, lastModified: Date.now() });
-
-            // Use DataTransfer to create a FileList and set on input
-            const dt = new DataTransfer();
-            dt.items.add(file);
-            input.files = dt.files;
-
-            // Trigger events
+          // Trigger change events for the upload plugin
+          await page.evaluate(() => {
+            const input = document.querySelector('input[type="file"]');
+            if (!input) return;
             input.dispatchEvent(new Event("change", { bubbles: true }));
             input.dispatchEvent(new Event("input", { bubbles: true }));
-
-            // jQuery trigger
             if (typeof jQuery !== "undefined") {
               jQuery(input).trigger("change");
             }
+          });
 
-            return { ok: true };
-          }, { base64: fileBase64, name: fileName, mime: mimeType });
+          // Wait for upload AJAX to complete (check for new thumbnail or progress bar finishing)
+          const expectedThumbs = initialThumbCount + i + 1;
+          let uploaded = false;
+          for (let wait = 0; wait < 15; wait++) {
+            await new Promise((r) => setTimeout(r, 1000));
+            const currentState = await page.evaluate(() => {
+              const thumbs = document.querySelectorAll(".gorsel-onizleme img, .upload-preview img, [class*='thumb'] img, [class*='preview'] img, .gorsel_kutu img").length;
+              const progressBars = document.querySelectorAll(".progress-bar, [class*='progress']");
+              let uploading = false;
+              progressBars.forEach(bar => {
+                const width = bar.style.width;
+                if (width && width !== "100%" && width !== "0%") uploading = true;
+              });
+              return { thumbs, uploading };
+            });
 
-          if (uploadResult.ok) {
-            log(`  [${i + 1}/${filesToUpload.length}] Sent ${fileName}`);
-            // Wait for the site to process the upload
-            await new Promise((r) => setTimeout(r, 3000));
-          } else {
-            log(`  [${i + 1}/${filesToUpload.length}] Warning: ${uploadResult.error}`);
+            if (currentState.thumbs >= expectedThumbs) {
+              uploaded = true;
+              log(`  [${i + 1}/${filesToUpload.length}] Done (${wait + 1}s, ${currentState.thumbs} thumbs)`);
+              break;
+            }
+            if (!currentState.uploading && wait >= 3) {
+              // No active progress bar and waited at least 3s - assume done
+              uploaded = true;
+              log(`  [${i + 1}/${filesToUpload.length}] Done (${wait + 1}s, no active upload)`);
+              break;
+            }
+          }
+
+          if (!uploaded) {
+            log(`  [${i + 1}/${filesToUpload.length}] Timeout after 15s, continuing...`);
           }
         } catch (err) {
           log(`  [${i + 1}/${filesToUpload.length}] Error: ${err.message}`);
+          // If uploadFile fails, try base64 fallback for this file
+          try {
+            log(`  [${i + 1}/${filesToUpload.length}] Trying base64 fallback...`);
+            const fileBuffer = fs.readFileSync(filePath);
+            const fileBase64 = fileBuffer.toString("base64");
+            const mimeType = fileName.endsWith(".png") ? "image/png" : "image/jpeg";
+
+            await page.evaluate(({ base64, name, mime }) => {
+              const input = document.querySelector('input[type="file"]');
+              if (!input) return;
+              const byteChars = atob(base64);
+              const bytes = new Uint8Array(byteChars.length);
+              for (let j = 0; j < byteChars.length; j++) bytes[j] = byteChars.charCodeAt(j);
+              const blob = new Blob([bytes], { type: mime });
+              const file = new File([blob], name, { type: mime, lastModified: Date.now() });
+              const dt = new DataTransfer();
+              dt.items.add(file);
+              input.files = dt.files;
+              input.dispatchEvent(new Event("change", { bubbles: true }));
+              if (typeof jQuery !== "undefined") jQuery(input).trigger("change");
+            }, { base64: fileBase64, name: fileName, mime: mimeType });
+
+            await new Promise((r) => setTimeout(r, 3000));
+            log(`  [${i + 1}/${filesToUpload.length}] Base64 fallback sent`);
+          } catch (fallbackErr) {
+            log(`  [${i + 1}/${filesToUpload.length}] Base64 fallback also failed: ${fallbackErr.message}`);
+          }
         }
       }
-      log("Photo upload complete");
+
+      // Final check: how many photos were uploaded
+      const finalThumbCount = await page.evaluate(() => {
+        return document.querySelectorAll(".gorsel-onizleme img, .upload-preview img, [class*='thumb'] img, [class*='preview'] img, .gorsel_kutu img").length;
+      });
+      log(`Photo upload complete: ${finalThumbCount - initialThumbCount} new thumbnails (was ${initialThumbCount}, now ${finalThumbCount})`);
     }
 
     // Remove required from non-form fields (search bars) to avoid validation blocking

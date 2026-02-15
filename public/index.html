@@ -257,7 +257,8 @@
 
     async function openBrowser() {
       document.getElementById("folderModal").classList.add("active");
-      await loadFolder();
+      const lastPath = document.getElementById("outputDir").value.trim();
+      await loadFolder(lastPath || undefined);
     }
 
     function closeModal() {
@@ -288,7 +289,11 @@
       try {
         const res = await fetch("/browse" + params);
         const data = await res.json();
-        if (data.error) { alert(data.error); return; }
+        if (data.error) {
+          if (dirPath) return loadFolder();
+          alert(data.error);
+          return;
+        }
 
         currentBrowsePath = data.current;
         document.getElementById("modalPath").textContent = data.current;

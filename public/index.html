@@ -83,6 +83,136 @@
     #log .progress { color: #9cdcfe; }
     #log .done { color: #6a9955; font-weight: bold; }
     #log .error { color: #f44747; }
+
+    .input-row {
+      display: flex;
+      gap: 8px;
+    }
+    .input-row input[type="text"] { flex: 1; }
+    .btn-browse {
+      width: auto;
+      padding: 10px 16px;
+      margin-top: 0;
+      white-space: nowrap;
+      font-size: 0.875rem;
+    }
+
+    .modal-overlay {
+      display: none;
+      position: fixed;
+      inset: 0;
+      background: rgba(0,0,0,0.5);
+      z-index: 1000;
+      justify-content: center;
+      align-items: center;
+    }
+    .modal-overlay.active { display: flex; }
+    .modal {
+      background: #fff;
+      border-radius: 10px;
+      width: 90%;
+      max-width: 520px;
+      max-height: 80vh;
+      display: flex;
+      flex-direction: column;
+      box-shadow: 0 8px 32px rgba(0,0,0,0.2);
+    }
+    .modal-header {
+      padding: 16px 20px;
+      border-bottom: 1px solid #eee;
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+    }
+    .modal-header h2 { font-size: 1.1rem; }
+    .modal-close {
+      width: auto;
+      padding: 4px 10px;
+      margin: 0;
+      background: transparent;
+      color: #888;
+      font-size: 1.3rem;
+      line-height: 1;
+    }
+    .modal-close:hover { background: #f0f0f0; color: #333; }
+    .modal-path {
+      padding: 10px 20px;
+      background: #f8f8f8;
+      font-size: 0.8rem;
+      color: #666;
+      font-family: monospace;
+      word-break: break-all;
+      border-bottom: 1px solid #eee;
+    }
+    .modal-body {
+      flex: 1;
+      overflow-y: auto;
+      padding: 8px 0;
+      min-height: 200px;
+      max-height: 45vh;
+    }
+    .folder-item {
+      padding: 10px 20px;
+      cursor: pointer;
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      font-size: 0.9rem;
+      transition: background 0.15s;
+    }
+    .folder-item:hover { background: #f0f5ff; }
+    .folder-item.parent { color: #888; font-style: italic; }
+    .shortcuts-bar {
+      display: flex;
+      gap: 6px;
+      padding: 10px 20px;
+      border-bottom: 1px solid #eee;
+      flex-wrap: wrap;
+    }
+    .shortcut-btn {
+      width: auto;
+      padding: 5px 12px;
+      margin: 0;
+      font-size: 0.75rem;
+      border-radius: 4px;
+      background: #e8e8e8;
+      color: #333;
+    }
+    .shortcut-btn:hover { background: #d0d0d0; }
+    .shortcut-btn.active { background: #4a90d9; color: #fff; }
+    .modal-footer {
+      padding: 12px 20px;
+      border-top: 1px solid #eee;
+      display: flex;
+      flex-direction: column;
+      gap: 8px;
+    }
+    .mkdir-row {
+      display: flex;
+      gap: 8px;
+    }
+    .mkdir-row input {
+      flex: 1;
+      padding: 8px 10px;
+      border: 1px solid #ddd;
+      border-radius: 6px;
+      font-size: 0.85rem;
+    }
+    .mkdir-row input:focus { outline: none; border-color: #4a90d9; }
+    .btn-mkdir {
+      width: auto;
+      padding: 8px 14px;
+      margin: 0;
+      font-size: 0.8rem;
+      background: #5cb85c;
+    }
+    .btn-mkdir:hover { background: #4cae4c; }
+    .btn-select {
+      width: 100%;
+      padding: 10px;
+      margin: 0;
+      font-size: 0.9rem;
+    }
   </style>
 </head>
 <body>
@@ -94,13 +224,130 @@
     </div>
     <div class="form-group">
       <label for="outputDir">Download Folder</label>
-      <input type="text" id="outputDir" value="./downloads">
+      <div class="input-row">
+        <input type="text" id="outputDir" value="./downloads">
+        <button class="btn-browse" onclick="openBrowser()">Browse</button>
+      </div>
     </div>
     <button id="startBtn" onclick="startScrape()">Start</button>
     <div id="log"></div>
   </div>
 
+  <div class="modal-overlay" id="folderModal">
+    <div class="modal">
+      <div class="modal-header">
+        <h2>Select Folder</h2>
+        <button class="modal-close" onclick="closeModal()">&times;</button>
+      </div>
+      <div class="shortcuts-bar" id="shortcutsBar"></div>
+      <div class="modal-path" id="modalPath"></div>
+      <div class="modal-body" id="folderList"></div>
+      <div class="modal-footer">
+        <div class="mkdir-row">
+          <input type="text" id="newFolderName" placeholder="New folder name...">
+          <button class="btn-mkdir" onclick="createFolder()">Create</button>
+        </div>
+        <button class="btn-select" onclick="selectFolder()">Select This Folder</button>
+      </div>
+    </div>
+  </div>
+
   <script>
+    let currentBrowsePath = "";
+
+    async function openBrowser() {
+      document.getElementById("folderModal").classList.add("active");
+      await loadFolder();
+    }
+
+    function closeModal() {
+      document.getElementById("folderModal").classList.remove("active");
+    }
+
+    function renderShortcuts(drives) {
+      const bar = document.getElementById("shortcutsBar");
+      bar.innerHTML = "";
+
+      const homeBtn = document.createElement("button");
+      homeBtn.className = "shortcut-btn";
+      homeBtn.textContent = "Home";
+      homeBtn.onclick = () => loadFolder();
+      bar.appendChild(homeBtn);
+
+      for (const drive of drives) {
+        const btn = document.createElement("button");
+        btn.className = "shortcut-btn";
+        btn.textContent = drive.label;
+        btn.onclick = () => loadFolder(drive.path);
+        bar.appendChild(btn);
+      }
+    }
+
+    async function loadFolder(dirPath) {
+      const params = dirPath ? "?path=" + encodeURIComponent(dirPath) : "";
+      try {
+        const res = await fetch("/browse" + params);
+        const data = await res.json();
+        if (data.error) { alert(data.error); return; }
+
+        currentBrowsePath = data.current;
+        document.getElementById("modalPath").textContent = data.current;
+
+        if (data.drives) renderShortcuts(data.drives);
+
+        const list = document.getElementById("folderList");
+        list.innerHTML = "";
+
+        // Parent directory
+        const parent = document.createElement("div");
+        parent.className = "folder-item parent";
+        parent.textContent = ".. (parent folder)";
+        parent.onclick = () => {
+          const parentPath = currentBrowsePath.replace(/[/\\][^/\\]*$/, "") || "/";
+          loadFolder(parentPath);
+        };
+        list.appendChild(parent);
+
+        for (const name of data.folders) {
+          const item = document.createElement("div");
+          item.className = "folder-item";
+          item.innerHTML = "&#128193; " + name;
+          item.onclick = () => loadFolder(currentBrowsePath + "/" + name);
+          list.appendChild(item);
+        }
+      } catch (err) {
+        alert("Failed to browse: " + err.message);
+      }
+    }
+
+    async function createFolder() {
+      const name = document.getElementById("newFolderName").value.trim();
+      if (!name) return;
+      try {
+        const res = await fetch("/mkdir", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ dirPath: currentBrowsePath + "/" + name })
+        });
+        const data = await res.json();
+        if (data.error) { alert(data.error); return; }
+        document.getElementById("newFolderName").value = "";
+        await loadFolder(currentBrowsePath);
+      } catch (err) {
+        alert("Failed to create folder: " + err.message);
+      }
+    }
+
+    function selectFolder() {
+      document.getElementById("outputDir").value = currentBrowsePath;
+      closeModal();
+    }
+
+    // Close modal on overlay click
+    document.getElementById("folderModal").addEventListener("click", (e) => {
+      if (e.target === e.currentTarget) closeModal();
+    });
+
     function appendLog(text, className) {
       const log = document.getElementById("log");
       const line = document.createElement("div");

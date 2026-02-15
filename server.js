@@ -1,5 +1,7 @@
 const express = require("express");
 const path = require("path");
+const fs = require("fs");
+const os = require("os");
 const { scrapePhotos } = require("./scrape");
 
 const app = express();
@@ -7,6 +9,49 @@ const PORT = 3000;
 
 app.use(express.json());
 app.use(express.static(path.join(__dirname, "public")));
+
+function getWindowsDrives(callback) {
+  fs.readdir("/mnt", { withFileTypes: true }, (err, entries) => {
+    if (err) return callback([]);
+    const drives = entries
+      .filter((e) => e.isDirectory() && /^[a-z]$/.test(e.name))
+      .map((e) => ({ label: e.name.toUpperCase() + ":", path: "/mnt/" + e.name }));
+    callback(drives);
+  });
+}
+
+app.get("/browse", (req, res) => {
+  const requestedPath = req.query.path || os.homedir();
+  const resolved = path.resolve(requestedPath);
+
+  fs.readdir(resolved, { withFileTypes: true }, (err, entries) => {
+    if (err) {
+      return res.status(400).json({ error: "Cannot read directory: " + err.message });
+    }
+    const folders = entries
+      .filter((e) => e.isDirectory() && !e.name.startsWith("."))
+      .map((e) => e.name)
+      .sort((a, b) => a.localeCompare(b, undefined, { sensitivity: "base" }));
+
+    getWindowsDrives((drives) => {
+      res.json({ current: resolved, folders, drives });
+    });
+  });
+});
+
+app.post("/mkdir", (req, res) => {
+  const { dirPath } = req.body;
+  if (!dirPath) {
+    return res.status(400).json({ error: "dirPath is required" });
+  }
+  const resolved = path.resolve(dirPath);
+  fs.mkdir(resolved, { recursive: true }, (err) => {
+    if (err) {
+      return res.status(400).json({ error: "Cannot create directory: " + err.message });
+    }
+    res.json({ created: resolved });
+  });
+});
 
 app.post("/scrape", (req, res) => {
   const { url, outputDir } = req.body;

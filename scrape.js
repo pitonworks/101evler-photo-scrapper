@@ -67,58 +67,44 @@ async function scrapePhotos(url, outputDir, onProgress) {
     const title = await page.title();
     log(`Page title: ${title}`);
 
-    const imageUrls = await page.evaluate(() => {
-      const urls = new Set();
+    // Activate the #st gallery tab
+    log("Opening gallery tab (#st)...");
+    await page.evaluate(() => {
+      window.location.hash = "st";
+    });
+    await new Promise((r) => setTimeout(r, 1500));
 
-      document.querySelectorAll("img").forEach((img) => {
-        const src = img.src || img.dataset.src || img.dataset.lazy || img.dataset.original;
-        if (src && (src.includes("upload") || src.includes("image") || src.includes("photo") || src.includes("pic"))) {
-          urls.add(src);
-        }
+    // Collect image URLs from the #st gallery grid (fancybox links)
+    const cleanUrls = await page.evaluate(() => {
+      const container = document.querySelector(".gallery-tab-content#st, .w-tab-pane.gallery-tab-content");
+      if (!container) return [];
+
+      const urls = [];
+      // Fancybox links have href pointing to property_wm images
+      container.querySelectorAll('a.fancybox-link[data-fancybox]').forEach((a) => {
+        if (a.href) urls.push(a.href);
       });
 
-      document.querySelectorAll("[style*='background']").forEach((el) => {
-        const match = el.style.backgroundImage?.match(/url\(["']?(.+?)["']?\)/);
-        if (match && match[1] && (match[1].includes("upload") || match[1].includes("image"))) {
-          urls.add(match[1]);
-        }
-      });
+      // Fallback: if no fancybox links, grab img src from the grid
+      if (urls.length === 0) {
+        container.querySelectorAll("img").forEach((img) => {
+          const src = img.src || img.dataset.src;
+          if (src && src.includes("101evler")) urls.push(src);
+        });
+      }
 
-      document.querySelectorAll("a[href*='upload'], a[href*='image'], a[data-fancybox]").forEach((a) => {
-        if (a.href && (a.href.match(/\.(jpg|jpeg|png|webp|gif)/i) || a.href.includes("upload"))) {
-          urls.add(a.href);
-        }
-      });
-
-      document.querySelectorAll("[data-src], [data-image], [data-photo], [data-big], [data-full]").forEach((el) => {
-        const src = el.dataset.src || el.dataset.image || el.dataset.photo || el.dataset.big || el.dataset.full;
-        if (src) urls.add(src);
-      });
-
-      document.querySelectorAll(".swiper-slide img, .slick-slide img, .owl-item img, .gallery img, .fotorama img, .fotorama div").forEach((el) => {
-        const src = el.src || el.dataset.src || el.dataset.img || el.dataset.full;
-        if (src) urls.add(src);
-      });
-
-      return [...urls];
+      return [...new Set(urls)];
     });
 
-    const pageContent = await page.content();
-    const srcRegex = /https?:\/\/[^"'\s<>]+?(?:upload|image|photo|pic)[^"'\s<>]*?\.(?:jpg|jpeg|png|webp|gif)/gi;
-    const srcMatches = pageContent.match(srcRegex) || [];
+    // Replace property_wm with property_thumb for non-watermarked images
+    const finalUrls = cleanUrls.map((u) =>
+      u.replace("/property_wm/", "/property_thumb/")
+    );
 
-    const allUrls = [...new Set([...imageUrls, ...srcMatches])];
+    log(`Found ${finalUrls.length} gallery images`);
 
-    const cleanUrls = allUrls
-      .map((u) => {
-        return u.replace(/_thumb|_small|_medium|\?w=\d+|\?h=\d+/gi, "");
-      })
-      .filter((u, i, arr) => arr.indexOf(u) === i);
-
-    log(`Found ${cleanUrls.length} image URLs`);
-
-    if (cleanUrls.length === 0) {
-      log("No images found.");
+    if (finalUrls.length === 0) {
+      log("No images found in #st gallery.");
       await browser.close();
       return { total: 0, downloaded: 0 };
     }
@@ -128,11 +114,11 @@ async function scrapePhotos(url, outputDir, onProgress) {
       log(`Created directory: ${outputDir}`);
     }
 
-    log(`Downloading ${cleanUrls.length} images to ${outputDir}...`);
+    log(`Downloading ${finalUrls.length} images to ${outputDir}...`);
     let downloaded = 0;
 
-    for (let i = 0; i < cleanUrls.length; i++) {
-      const imageUrl = cleanUrls[i];
+    for (let i = 0; i < finalUrls.length; i++) {
+      const imageUrl = finalUrls[i];
       const ext = path.extname(new URL(imageUrl).pathname) || ".jpg";
       const filename = `photo_${String(i + 1).padStart(2, "0")}${ext}`;
       const dest = path.join(outputDir, filename);
@@ -148,7 +134,7 @@ async function scrapePhotos(url, outputDir, onProgress) {
     }
 
     log("Done!");
-    return { total: cleanUrls.length, downloaded };
+    return { total: finalUrls.length, downloaded };
   } finally {
     await browser.close();
   }

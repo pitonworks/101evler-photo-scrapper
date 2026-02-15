@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>101evler Photo Scraper</title>
+  <title>101evler Tools</title>
   <style>
     * { box-sizing: border-box; margin: 0; padding: 0; }
     body {
@@ -21,9 +21,36 @@
     }
     h1 {
       font-size: 1.5rem;
-      margin-bottom: 24px;
+      margin-bottom: 16px;
       color: #1a1a1a;
     }
+
+    /* Tabs */
+    .tabs {
+      display: flex;
+      gap: 0;
+      margin-bottom: 24px;
+      border-bottom: 2px solid #ddd;
+    }
+    .tab {
+      padding: 10px 20px;
+      cursor: pointer;
+      font-size: 0.9rem;
+      font-weight: 500;
+      color: #888;
+      border-bottom: 2px solid transparent;
+      margin-bottom: -2px;
+      transition: color 0.2s, border-color 0.2s;
+      user-select: none;
+    }
+    .tab:hover { color: #555; }
+    .tab.active {
+      color: #4a90d9;
+      border-bottom-color: #4a90d9;
+    }
+    .tab-content { display: none; }
+    .tab-content.active { display: block; }
+
     .form-group {
       margin-bottom: 16px;
     }
@@ -34,7 +61,7 @@
       margin-bottom: 6px;
       color: #555;
     }
-    input[type="text"] {
+    input[type="text"], input[type="email"], input[type="password"] {
       width: 100%;
       padding: 10px 12px;
       border: 1px solid #ddd;
@@ -43,7 +70,7 @@
       background: #fff;
       transition: border-color 0.2s;
     }
-    input[type="text"]:focus {
+    input[type="text"]:focus, input[type="email"]:focus, input[type="password"]:focus {
       outline: none;
       border-color: #4a90d9;
     }
@@ -65,7 +92,7 @@
       background: #a0c4e8;
       cursor: not-allowed;
     }
-    #log {
+    .log-area {
       margin-top: 24px;
       background: #1e1e1e;
       color: #d4d4d4;
@@ -80,9 +107,11 @@
       white-space: pre-wrap;
       word-break: break-all;
     }
-    #log .progress { color: #9cdcfe; }
-    #log .done { color: #6a9955; font-weight: bold; }
-    #log .error { color: #f44747; }
+    .log-area .progress { color: #9cdcfe; }
+    .log-area .done { color: #6a9955; font-weight: bold; }
+    .log-area .error { color: #f44747; }
+    .log-area .phase { color: #dcdcaa; font-weight: bold; }
+    .log-area .meta { color: #ce9178; }
 
     .input-row {
       display: flex;
@@ -97,6 +126,60 @@
       font-size: 0.875rem;
     }
 
+    /* Metadata preview */
+    .metadata-preview {
+      margin-top: 16px;
+      background: #fff;
+      border: 1px solid #ddd;
+      border-radius: 6px;
+      padding: 12px 16px;
+      font-size: 0.85rem;
+      display: none;
+    }
+    .metadata-preview h3 {
+      font-size: 0.9rem;
+      margin-bottom: 8px;
+      color: #4a90d9;
+    }
+    .metadata-preview .meta-row {
+      display: flex;
+      justify-content: space-between;
+      padding: 4px 0;
+      border-bottom: 1px solid #f0f0f0;
+    }
+    .metadata-preview .meta-row:last-child { border-bottom: none; }
+    .metadata-preview .meta-label { color: #888; }
+    .metadata-preview .meta-value { font-weight: 500; }
+
+    .checkbox-group { margin-bottom: 12px; }
+    .checkbox-label {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      cursor: pointer;
+      font-size: 0.9rem;
+      color: #555;
+    }
+    .checkbox-label input[type="checkbox"] {
+      width: 18px;
+      height: 18px;
+      accent-color: #e67e22;
+    }
+    .metadata-preview h4 {
+      font-size: 0.85rem;
+      margin-bottom: 6px;
+    }
+
+    .btn-transfer {
+      background: #e67e22;
+    }
+    .btn-transfer:hover { background: #d35400; }
+    .btn-transfer:disabled {
+      background: #f0c08a;
+      cursor: not-allowed;
+    }
+
+    /* Modal styles (kept from original) */
     .modal-overlay {
       display: none;
       position: fixed;
@@ -217,22 +300,75 @@
 </head>
 <body>
   <div class="container">
-    <h1>101evler Photo Scraper</h1>
-    <div class="form-group">
-      <label for="url">101evler Link</label>
-      <input type="text" id="url" placeholder="https://www.101evler.com/...">
+    <h1>101evler Tools</h1>
+
+    <!-- Tabs -->
+    <div class="tabs">
+      <div class="tab active" onclick="switchTab('scraper')">Photo Scraper</div>
+      <div class="tab" onclick="switchTab('transfer')">Listing Transfer</div>
     </div>
-    <div class="form-group">
-      <label for="outputDir">Download Folder</label>
-      <div class="input-row">
-        <input type="text" id="outputDir" value="./downloads">
-        <button class="btn-browse" onclick="openBrowser()">Browse</button>
+
+    <!-- Tab 1: Photo Scraper (existing) -->
+    <div id="tab-scraper" class="tab-content active">
+      <div class="form-group">
+        <label for="url">101evler Link</label>
+        <input type="text" id="url" placeholder="https://www.101evler.com/...">
       </div>
+      <div class="form-group">
+        <label for="outputDir">Download Folder</label>
+        <div class="input-row">
+          <input type="text" id="outputDir" value="./downloads">
+          <button class="btn-browse" onclick="openBrowser()">Browse</button>
+        </div>
+      </div>
+      <button id="startBtn" onclick="startScrape()">Start</button>
+      <div id="log" class="log-area"></div>
     </div>
-    <button id="startBtn" onclick="startScrape()">Start</button>
-    <div id="log"></div>
+
+    <!-- Tab 2: Listing Transfer -->
+    <div id="tab-transfer" class="tab-content">
+      <div class="form-group">
+        <label for="transferUrl">101evler Link</label>
+        <input type="text" id="transferUrl" placeholder="https://www.101evler.com/...">
+      </div>
+      <div class="form-group">
+        <label for="ggEmail">gelgezgor.com Email</label>
+        <input type="email" id="ggEmail" placeholder="email@example.com">
+      </div>
+      <div class="form-group">
+        <label for="ggPassword">gelgezgor.com Password</label>
+        <input type="password" id="ggPassword" placeholder="Password">
+      </div>
+      <div class="form-group checkbox-group">
+        <label class="checkbox-label">
+          <input type="checkbox" id="dryRunCheck">
+          <span>Dry Run (formu doldur ama gönderme)</span>
+        </label>
+      </div>
+      <button id="transferBtn" class="btn-transfer" onclick="startTransfer()">Transfer Listing</button>
+      <div id="metadataPreview" class="metadata-preview">
+        <h3>Scraped Metadata</h3>
+        <div id="metadataContent"></div>
+      </div>
+      <div id="dryRunResult" class="metadata-preview" style="display:none">
+        <h3>Dry Run Sonucu</h3>
+        <div id="dryRunProfile"></div>
+        <h4 style="margin-top:12px;font-size:0.85rem;color:#e67e22">Doldurulan Alanlar</h4>
+        <div id="dryRunValues"></div>
+        <div id="dryRunWarnings" style="display:none">
+          <h4 style="margin-top:12px;font-size:0.85rem;color:#e74c3c">Uyarilar</h4>
+          <div id="dryRunWarningsList"></div>
+        </div>
+        <div id="dryRunSkipped" style="display:none">
+          <h4 style="margin-top:12px;font-size:0.85rem;color:#888">Atlanan Alanlar</h4>
+          <div id="dryRunSkippedList"></div>
+        </div>
+      </div>
+      <div id="transferLog" class="log-area"></div>
+    </div>
   </div>
 
+  <!-- Folder Browser Modal -->
   <div class="modal-overlay" id="folderModal">
     <div class="modal">
       <div class="modal-header">
@@ -253,6 +389,18 @@
   </div>
 
   <script>
+    // ==================== Tab switching ====================
+    function switchTab(tabName) {
+      document.querySelectorAll('.tab').forEach(t => t.classList.remove('active'));
+      document.querySelectorAll('.tab-content').forEach(t => t.classList.remove('active'));
+      document.getElementById('tab-' + tabName).classList.add('active');
+      // Find the tab button
+      const tabs = document.querySelectorAll('.tab');
+      if (tabName === 'scraper') tabs[0].classList.add('active');
+      else tabs[1].classList.add('active');
+    }
+
+    // ==================== Folder Browser (existing) ====================
     let currentBrowsePath = "";
 
     async function openBrowser() {
@@ -303,7 +451,6 @@
         const list = document.getElementById("folderList");
         list.innerHTML = "";
 
-        // Parent directory
         const parent = document.createElement("div");
         parent.className = "folder-item parent";
         parent.textContent = ".. (parent folder)";
@@ -348,20 +495,51 @@
       closeModal();
     }
 
-    // Close modal on overlay click
     document.getElementById("folderModal").addEventListener("click", (e) => {
       if (e.target === e.currentTarget) closeModal();
     });
 
-    function appendLog(text, className) {
-      const log = document.getElementById("log");
+    // ==================== Log helpers ====================
+    function appendLog(logEl, text, className) {
+      logEl.style.display = "block";
       const line = document.createElement("div");
       line.textContent = text;
       if (className) line.className = className;
-      log.appendChild(line);
-      log.scrollTop = log.scrollHeight;
+      logEl.appendChild(line);
+      logEl.scrollTop = logEl.scrollHeight;
     }
 
+    // ==================== SSE stream reader ====================
+    async function readSSEStream(response, logEl, handlers) {
+      const reader = response.body.getReader();
+      const decoder = new TextDecoder();
+      let buffer = "";
+
+      while (true) {
+        const { done, value } = await reader.read();
+        if (done) break;
+
+        buffer += decoder.decode(value, { stream: true });
+        const lines = buffer.split("\n");
+        buffer = lines.pop();
+
+        for (const line of lines) {
+          if (!line.startsWith("data: ")) continue;
+          try {
+            const data = JSON.parse(line.slice(6));
+            if (handlers[data.type]) {
+              handlers[data.type](data);
+            } else if (data.type === "progress") {
+              appendLog(logEl, data.message, "progress");
+            }
+          } catch (e) {
+            // ignore parse errors
+          }
+        }
+      }
+    }
+
+    // ==================== Photo Scraper ====================
     async function startScrape() {
       const url = document.getElementById("url").value.trim();
       const outputDir = document.getElementById("outputDir").value.trim();
@@ -383,37 +561,165 @@
           body: JSON.stringify({ url, outputDir })
         });
 
-        const reader = response.body.getReader();
-        const decoder = new TextDecoder();
-        let buffer = "";
-
-        while (true) {
-          const { done, value } = await reader.read();
-          if (done) break;
-
-          buffer += decoder.decode(value, { stream: true });
-          const lines = buffer.split("\n");
-          buffer = lines.pop();
-
-          for (const line of lines) {
-            if (!line.startsWith("data: ")) continue;
-            const data = JSON.parse(line.slice(6));
-
-            if (data.type === "progress") {
-              appendLog(data.message, "progress");
-            } else if (data.type === "done") {
-              appendLog(`Completed: ${data.downloaded}/${data.total} photos downloaded.`, "done");
-            } else if (data.type === "error") {
-              appendLog(`Error: ${data.message}`, "error");
-            }
-          }
-        }
+        await readSSEStream(response, log, {
+          done: (data) => appendLog(log, `Completed: ${data.downloaded}/${data.total} photos downloaded.`, "done"),
+          error: (data) => appendLog(log, `Error: ${data.message}`, "error"),
+        });
       } catch (err) {
-        appendLog(`Connection error: ${err.message}`, "error");
+        appendLog(log, `Connection error: ${err.message}`, "error");
       }
 
       btn.disabled = false;
       btn.textContent = "Start";
+    }
+
+    // ==================== Listing Transfer ====================
+    // Save/restore email from localStorage
+    const savedEmail = localStorage.getItem("gg_email");
+    if (savedEmail) {
+      document.addEventListener("DOMContentLoaded", () => {
+        const el = document.getElementById("ggEmail");
+        if (el) el.value = savedEmail;
+      });
+      // Also set immediately if DOM is ready
+      const emailEl = document.getElementById("ggEmail");
+      if (emailEl) emailEl.value = savedEmail;
+    }
+
+    function showMetadata(metadata, photoCount) {
+      const preview = document.getElementById("metadataPreview");
+      const content = document.getElementById("metadataContent");
+      preview.style.display = "block";
+
+      const rows = [
+        ["Title", metadata.baslik || "-"],
+        ["Price", `${metadata.fiyat || "-"} ${metadata.paraBirimi || ""}`],
+        ["Type", metadata.saleType === "satilik" ? "Satilik" : "Kiralik"],
+        ["City", metadata.cityName || "-"],
+        ["Category", `kat=${metadata.katCode}`],
+        ["Photos", photoCount + " downloaded"],
+      ];
+
+      // Add details if available
+      if (metadata.details) {
+        for (const [key, val] of Object.entries(metadata.details)) {
+          if (val && rows.length < 12) {
+            rows.push([key, val]);
+          }
+        }
+      }
+
+      content.innerHTML = rows.map(([label, value]) =>
+        `<div class="meta-row"><span class="meta-label">${label}</span><span class="meta-value">${value}</span></div>`
+      ).join("");
+    }
+
+    function showDryRunResult(data) {
+      const container = document.getElementById("dryRunResult");
+      container.style.display = "block";
+
+      // Profile info
+      document.getElementById("dryRunProfile").innerHTML =
+        `<div class="meta-row"><span class="meta-label">Profil</span><span class="meta-value">${data.profile.label}</span></div>` +
+        `<div class="meta-row"><span class="meta-label">Tip</span><span class="meta-value">${data.profile.type}</span></div>` +
+        `<div class="meta-row"><span class="meta-label">Form alanlari</span><span class="meta-value">${data.discoveredFields.length} kesfedildi</span></div>`;
+
+      // Mapped values
+      const valuesHtml = Object.entries(data.mappedValues).map(([key, val]) => {
+        const filled = data.filledFields.includes(key);
+        const displayVal = key === "aciklama" ? val.substring(0, 80) + "..." : val;
+        return `<div class="meta-row">
+          <span class="meta-label">${key} ${filled ? "✓" : "✗"}</span>
+          <span class="meta-value" style="color:${filled ? "#27ae60" : "#e74c3c"}">${displayVal}</span>
+        </div>`;
+      }).join("");
+      document.getElementById("dryRunValues").innerHTML = valuesHtml;
+
+      // Warnings
+      const warningsEl = document.getElementById("dryRunWarnings");
+      if (data.warnings && data.warnings.length > 0) {
+        warningsEl.style.display = "block";
+        document.getElementById("dryRunWarningsList").innerHTML =
+          data.warnings.map(w => `<div class="meta-row"><span class="meta-label" style="color:#e74c3c">${w}</span></div>`).join("");
+      } else {
+        warningsEl.style.display = "none";
+      }
+
+      // Skipped fields
+      const skippedEl = document.getElementById("dryRunSkipped");
+      if (data.skippedFields && data.skippedFields.length > 0) {
+        skippedEl.style.display = "block";
+        document.getElementById("dryRunSkippedList").innerHTML =
+          data.skippedFields.map(f => `<div class="meta-row"><span class="meta-label">${f}</span></div>`).join("");
+      } else {
+        skippedEl.style.display = "none";
+      }
+    }
+
+    async function startTransfer() {
+      const url = document.getElementById("transferUrl").value.trim();
+      const email = document.getElementById("ggEmail").value.trim();
+      const password = document.getElementById("ggPassword").value.trim();
+      const dryRun = document.getElementById("dryRunCheck").checked;
+      const btn = document.getElementById("transferBtn");
+      const log = document.getElementById("transferLog");
+      const preview = document.getElementById("metadataPreview");
+      const dryRunResult = document.getElementById("dryRunResult");
+
+      if (!url) { alert("Please enter a 101evler URL."); return; }
+      if (!email) { alert("Please enter gelgezgor email."); return; }
+      if (!password) { alert("Please enter gelgezgor password."); return; }
+
+      // Save email
+      localStorage.setItem("gg_email", email);
+
+      log.style.display = "block";
+      log.innerHTML = "";
+      preview.style.display = "none";
+      dryRunResult.style.display = "none";
+      btn.disabled = true;
+      btn.textContent = dryRun ? "Running Dry Run..." : "Transferring...";
+
+      try {
+        const response = await fetch("/transfer", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ url, email, password, dryRun })
+        });
+
+        await readSSEStream(response, log, {
+          phase: (data) => appendLog(log, `--- ${data.message} ---`, "phase"),
+          scraped: (data) => {
+            appendLog(log, "Metadata scraped successfully!", "done");
+            showMetadata(data.metadata, data.photoCount);
+          },
+          dryrun: (data) => {
+            appendLog(log, "Dry run completed!", "done");
+            showDryRunResult(data);
+          },
+          done: (data) => {
+            if (data.dryRun) {
+              appendLog(log, "Dry run finished - form was NOT submitted", "done");
+            } else if (data.success) {
+              appendLog(log, `Listing posted successfully!`, "done");
+              if (data.listingUrl) {
+                appendLog(log, `URL: ${data.listingUrl}`, "done");
+              }
+            } else {
+              appendLog(log, `Transfer completed with warnings: ${data.error || "check gelgezgor.com"}`, "error");
+              if (data.listingUrl) {
+                appendLog(log, `Result URL: ${data.listingUrl}`, "progress");
+              }
+            }
+          },
+          error: (data) => appendLog(log, `Error: ${data.message}`, "error"),
+        });
+      } catch (err) {
+        appendLog(log, `Connection error: ${err.message}`, "error");
+      }
+
+      btn.disabled = false;
+      btn.textContent = "Transfer Listing";
     }
   </script>
 </body>

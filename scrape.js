@@ -1,8 +1,8 @@
-const puppeteer = require("puppeteer");
 const fs = require("fs");
 const path = require("path");
 const https = require("https");
 const http = require("http");
+const { launchBrowser, setupPage, bypassCloudflare } = require("./browser");
 
 function downloadFile(fileUrl, dest) {
   return new Promise((resolve, reject) => {
@@ -27,42 +27,260 @@ function downloadFile(fileUrl, dest) {
   });
 }
 
+// Category code mapping based on URL keywords
+const CATEGORY_MAP = {
+  "kiralik-daire": 912,
+  "kiralik-villa": 915,
+  "kiralik-penthouse": 19100,
+  "kiralik-mustakil-ev": 914,
+  "kiralik-dukkan": 970,
+  "satilik-daire": 901,
+  "satilik-studio": 902,
+  "satilik-mustakil-ev": 903,
+  "satilik-villa": 904,
+  "satilik-ikiz-villa": 19633,
+  "satilik-penthouse": 18260,
+  "satilik-arsa": 101,
+};
+
+// gelgezgor.com il kodları
+const CITY_MAP = {
+  lefkosa: 82, lefkoşa: 82,
+  gazimagusa: 83, gazimağusa: 83,
+  guzelyurt: 84, güzelyurt: 84,
+  lefke: 85,
+  girne: 86,
+  iskele: 88, İskele: 88,
+};
+
+function normalizeTurkish(str) {
+  return str
+    .toLowerCase()
+    .replace(/ı/g, "i")
+    .replace(/ğ/g, "g")
+    .replace(/ü/g, "u")
+    .replace(/ş/g, "s")
+    .replace(/ö/g, "o")
+    .replace(/ç/g, "c")
+    .replace(/İ/g, "i");
+}
+
+function detectCategoryCode(url, details) {
+  const urlLower = normalizeTurkish(url);
+
+  // Direct match first (e.g. URL contains "satilik-villa")
+  for (const [keyword, code] of Object.entries(CATEGORY_MAP)) {
+    if (urlLower.includes(keyword)) return code;
+  }
+
+  // Detect sale type from URL
+  const isSale = urlLower.includes("satilik");
+
+  // Detect property type from URL slug or details
+  const emlakTipi = details && details["Emlak Tipi"] ? normalizeTurkish(details["Emlak Tipi"]) : "";
+  const combined = urlLower + " " + emlakTipi;
+
+  const typeMap = isSale
+    ? { villa: 904, "ikiz villa": 19633, penthouse: 18260, studio: 902, "mustakil ev": 903, arsa: 101, daire: 901 }
+    : { villa: 915, penthouse: 19100, "mustakil ev": 914, dukkan: 970, daire: 912 };
+
+  for (const [type, code] of Object.entries(typeMap)) {
+    if (combined.includes(type)) return code;
+  }
+
+  return isSale ? 901 : 912;
+}
+
+function detectCity(locationText) {
+  const normalized = normalizeTurkish(locationText);
+  for (const [key, id] of Object.entries(CITY_MAP)) {
+    if (normalized.includes(normalizeTurkish(key))) return { id, name: key };
+  }
+  return null;
+}
+
+/**
+ * Scrape full listing metadata + photos from 101evler.com
+ * @param {string} url - 101evler listing URL
+ * @param {string} tmpDir - Directory for downloaded photos
+ * @param {function} onProgress - Progress callback
+ * @returns {Promise<{metadata: object, photos: {total: number, downloaded: number, files: string[]}}>}
+ */
+async function scrapeListing(url, tmpDir, onProgress) {
+  const log = onProgress || console.log;
+
+  log("Launching browser...");
+  const browser = await launchBrowser();
+
+  try {
+    const page = await setupPage(browser);
+
+    log(`Navigating to ${url}`);
+    await page.goto(url, { waitUntil: "networkidle2", timeout: 60000 });
+    await bypassCloudflare(page, log);
+
+    const title = await page.title();
+    log(`Page title: ${title}`);
+
+    // Extract metadata from the listing page
+    log("Extracting listing metadata...");
+    const metadata = await page.evaluate(() => {
+      const getText = (sel) => {
+        const el = document.querySelector(sel);
+        return el ? el.textContent.trim() : "";
+      };
+
+      // Title (h1)
+      const baslik = getText("h1") || document.title;
+
+      // Price from h3.ilanDetayFontPrice (e.g. "£200,000")
+      let fiyat = "";
+      let paraBirimi = "";
+      const priceEl = document.querySelector("h3.ilanDetayFontPrice");
+      if (priceEl) {
+        const priceText = priceEl.textContent.trim();
+        const numMatch = priceText.replace(/[^\d]/g, "");
+        fiyat = numMatch;
+        if (priceText.includes("£")) paraBirimi = "GBP";
+        else if (priceText.includes("$")) paraBirimi = "USD";
+        else if (priceText.includes("€")) paraBirimi = "EUR";
+        else if (priceText.includes("₺")) paraBirimi = "TL";
+        else paraBirimi = "GBP";
+      }
+
+      // Description - try w-richtext or ilan-aciklama blocks
+      let aciklama = "";
+      let descriptionText = "";
+      const descEl = document.querySelector(".w-richtext, [class*='ilan-aciklama'], [class*='description']");
+      if (descEl) {
+        aciklama = descEl.innerHTML.trim();
+        descriptionText = descEl.textContent.trim();
+      }
+
+      // Detail rows from .text-block-141 (label + value pairs)
+      const details = {};
+      document.querySelectorAll(".text-block-141").forEach((el) => {
+        const parts = el.textContent.trim().split("\n").map(s => s.trim()).filter(Boolean);
+        if (parts.length >= 2) {
+          details[parts[0]] = parts[1];
+        }
+      });
+
+      // Quick stats from .div-block-358 (Emlak Tipi, Oda Sayısı, Banyo, Alan Ölçüsü)
+      document.querySelectorAll(".div-block-358").forEach((el) => {
+        const parts = el.textContent.trim().split("\n").map(s => s.trim()).filter(Boolean);
+        if (parts.length >= 2 && !details[parts[0]]) {
+          details[parts[0]] = parts[1];
+        }
+      });
+
+      // Location from .locationpremiumdivcopy
+      const location = getText(".locationpremiumdivcopy") || getText("[class*='location']");
+
+      // Subtitle h2 (e.g. "Satılık Villa - Karşıyaka, Girne, Kuzey Kıbrıs")
+      const subtitle = getText("h2.text-block-139") || getText("h2");
+
+      return { baslik, fiyat, paraBirimi, aciklama, descriptionText, details, location, subtitle };
+    });
+
+    // Detect category from URL + details
+    metadata.katCode = detectCategoryCode(url, metadata.details);
+    metadata.saleType = url.toLowerCase().includes("satilik") ? "satilik" : "kiralik";
+
+    // Detect city from location/subtitle
+    const locationStr = metadata.location + " " + (metadata.subtitle || "");
+    const cityInfo = detectCity(locationStr);
+    if (cityInfo) {
+      metadata.cityId = cityInfo.id;
+      metadata.cityName = cityInfo.name;
+    }
+
+    // Extract district (ilçe) from location (e.g. "Karşıyaka / Girne" -> "Karşıyaka")
+    if (metadata.location && metadata.location.includes("/")) {
+      metadata.district = metadata.location.split("/")[0].trim();
+    }
+
+    log(`Metadata: ${metadata.baslik} | ${metadata.fiyat} ${metadata.paraBirimi}`);
+    log(`Category code: ${metadata.katCode}, City: ${metadata.cityName || "unknown"}`);
+    log(`Details: ${JSON.stringify(metadata.details)}`);
+
+    // Now scrape photos using existing #st gallery logic
+    log("Opening gallery tab (#st)...");
+    await page.evaluate(() => {
+      window.location.hash = "st";
+    });
+    await new Promise((r) => setTimeout(r, 1500));
+
+    const cleanUrls = await page.evaluate(() => {
+      const container = document.querySelector(".gallery-tab-content#st, .w-tab-pane.gallery-tab-content");
+      if (!container) return [];
+
+      const urls = [];
+      container.querySelectorAll('a.fancybox-link[data-fancybox]').forEach((a) => {
+        if (a.href) urls.push(a.href);
+      });
+
+      if (urls.length === 0) {
+        container.querySelectorAll("img").forEach((img) => {
+          const src = img.src || img.dataset.src;
+          if (src && src.includes("101evler")) urls.push(src);
+        });
+      }
+
+      return [...new Set(urls)];
+    });
+
+    const finalUrls = cleanUrls.map((u) => u.replace("/property_wm/", "/property_thumb/"));
+    log(`Found ${finalUrls.length} gallery images`);
+
+    // Download photos
+    if (!fs.existsSync(tmpDir)) {
+      fs.mkdirSync(tmpDir, { recursive: true });
+    }
+
+    const files = [];
+    let downloaded = 0;
+
+    for (let i = 0; i < finalUrls.length; i++) {
+      const imageUrl = finalUrls[i];
+      const ext = path.extname(new URL(imageUrl).pathname) || ".jpg";
+      const filename = `photo_${String(i + 1).padStart(2, "0")}${ext}`;
+      const dest = path.join(tmpDir, filename);
+
+      try {
+        await downloadFile(imageUrl, dest);
+        const stats = fs.statSync(dest);
+        log(`Downloaded: ${filename} (${(stats.size / 1024).toFixed(1)} KB)`);
+        files.push(dest);
+        downloaded++;
+      } catch (err) {
+        log(`Failed: ${filename} - ${err.message}`);
+      }
+    }
+
+    log(`Photos: ${downloaded}/${finalUrls.length} downloaded`);
+
+    return {
+      metadata,
+      photos: { total: finalUrls.length, downloaded, files },
+    };
+  } finally {
+    await browser.close();
+  }
+}
+
 async function scrapePhotos(url, outputDir, onProgress) {
   const log = onProgress || console.log;
 
   log("Launching browser...");
-  const browser = await puppeteer.launch({
-    headless: "new",
-    args: [
-      "--no-sandbox",
-      "--disable-setuid-sandbox",
-      "--disable-blink-features=AutomationControlled",
-    ],
-  });
+  const browser = await launchBrowser();
 
   try {
-    const page = await browser.newPage();
-    await page.setUserAgent(
-      "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"
-    );
-    await page.setViewport({ width: 1920, height: 1080 });
-
-    await page.evaluateOnNewDocument(() => {
-      Object.defineProperty(navigator, "webdriver", { get: () => false });
-    });
+    const page = await setupPage(browser);
 
     log(`Navigating to ${url}`);
     await page.goto(url, { waitUntil: "networkidle2", timeout: 60000 });
-
-    log("Waiting for page to load (Cloudflare check)...");
-    await page.waitForFunction(
-      () => !document.title.includes("Just a moment"),
-      { timeout: 30000 }
-    ).catch(() => {
-      log("Cloudflare challenge may still be active, continuing...");
-    });
-
-    await new Promise((r) => setTimeout(r, 3000));
+    await bypassCloudflare(page, log);
 
     const title = await page.title();
     log(`Page title: ${title}`);
@@ -80,12 +298,10 @@ async function scrapePhotos(url, outputDir, onProgress) {
       if (!container) return [];
 
       const urls = [];
-      // Fancybox links have href pointing to property_wm images
       container.querySelectorAll('a.fancybox-link[data-fancybox]').forEach((a) => {
         if (a.href) urls.push(a.href);
       });
 
-      // Fallback: if no fancybox links, grab img src from the grid
       if (urls.length === 0) {
         container.querySelectorAll("img").forEach((img) => {
           const src = img.src || img.dataset.src;
@@ -97,15 +313,11 @@ async function scrapePhotos(url, outputDir, onProgress) {
     });
 
     // Replace property_wm with property_thumb for non-watermarked images
-    const finalUrls = cleanUrls.map((u) =>
-      u.replace("/property_wm/", "/property_thumb/")
-    );
-
+    const finalUrls = cleanUrls.map((u) => u.replace("/property_wm/", "/property_thumb/"));
     log(`Found ${finalUrls.length} gallery images`);
 
     if (finalUrls.length === 0) {
       log("No images found in #st gallery.");
-      await browser.close();
       return { total: 0, downloaded: 0 };
     }
 
@@ -156,4 +368,4 @@ if (require.main === module) {
   });
 }
 
-module.exports = { scrapePhotos };
+module.exports = { scrapePhotos, scrapeListing, downloadFile };

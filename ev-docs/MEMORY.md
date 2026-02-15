@@ -43,8 +43,36 @@ DİKKAT: "arası" soneki var, eski "6-10" formatı yanlıştı
 
 ## Bilinen Sorunlar
 - gelgezgor.com jQuery kullanıyor (Trumbowyg + autoNumeric) → native DOM events yetmez, jQuery.trigger() gerekli
-- Photo upload: Puppeteer uploadFile() site'ın custom uploader plugin'iyle çalışmıyor → base64 + DataTransfer yaklaşımı kullanılıyor
+- Photo upload: Native uploadFile() çalışıyor + thumbnail sayma ile completion detection. Bazı durumlarda "DOM.setFileInputFiles timed out" hatası → base64 fallback devreye giriyor. protocolTimeout artırılabilir.
 - Submit button: Site JS validation'ı tüm alanlar dolduğunda + onay checkbox işaretlendiğinde butonu aktif eder
+- ilçe/mahalle AJAX cascade: bazen ilçe boş kalıyor → submit disabled. İl seçiminden sonra 4s, ilçe seçiminden sonra 3s bekleniyor.
+- "Initial thumbnails on page: 50" sorunu: önceki upload'dan kalan thumbnail'ler sayıyı şişiriyor
+
+## Scraping Selektörleri (101evler.com)
+- Açıklama: `.div-block-361 .f-s-16` (birincil), fallback: `.f-s-16`, `.w-richtext`, `.col-10`
+- Detaylar: `.text-block-141, .ilandetaycomponent` (label+value çiftleri)
+- Hızlı detaylar: `.div-block-358` (Emlak Tipi, Oda, Banyo, Alan)
+- Galeri: `#st` tab → `a.fancybox-link[data-fancybox]` linkleri
+- Konum: `.locationpremiumdivcopy`
+
+## Session Notu (2026-02-15)
+### Kuyruk Durumu
+- **Done:** 17 ilan (12 başarılı, 5 başarısız)
+- **Failed:** 3 (timeout, DNS hatası)
+- **Processing:** 1 (ozankoy-villa-303671, fotoğraf yükleme aşamasında)
+- **Pending:** 1 (penthouse-269913 tekrar deneme)
+
+### Başarısız İlanlar - Sorun Analizi
+1. `penthouse-269913` (eski) → ilçe/mahalle boş kalıyor → submit disabled → sonraki denemede (ilan=21660) başarılı
+2. `tarla-291863` → net::ERR_NAME_NOT_RESOLVED (DNS hatası, 101evler erişim sorunu)
+3. `villa-296318` → net::ERR_NAME_NOT_RESOLVED (aynı DNS hatası)
+4. `hotel-296241` → kat=901 atanmış (hotel tipi desteklenmiyor, fallback daire)
+5. `villa-296333` → success=false ama detay yok, muhtemelen form validation
+
+### Çözülmesi Gereken Sorunlar
+- `DOM.setFileInputFiles timed out` hatası: protocolTimeout artır veya ilk uploadFile denemesinde timeout kısa tut
+- Hotel/otel ilan tipi: CATEGORY_MAP'te yok, kat=901'e düşüyor
+- ilçe boş kalma: AJAX bekleme süreleri artırılabilir veya retry mekanizması
 
 ## Keşfedilen Form Alan Adları (gelgezgor.com)
 - Asansör (büyük A, Türkçe ö), Havuz (büyük H), Otopark (büyük O), Kdv-Trafo (tire ile)

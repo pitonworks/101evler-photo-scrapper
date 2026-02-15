@@ -195,9 +195,38 @@ async function scrapeListing(url, tmpDir, onProgress) {
       metadata.cityName = cityInfo.name;
     }
 
-    // Extract district (ilçe) from location (e.g. "Karşıyaka / Girne" -> "Karşıyaka")
+    // Extract district (ilçe) from location or URL
     if (metadata.location && metadata.location.includes("/")) {
       metadata.district = metadata.location.split("/")[0].trim();
+    }
+    // Fallback: parse district from URL slug (e.g. /satilik-villa/karsiyaka-girne/)
+    if (!metadata.district) {
+      const urlPath = new URL(url).pathname;
+      const slugParts = urlPath.split("/").filter(Boolean);
+      // Second slug is usually "district-city" (e.g. "karsiyaka-girne")
+      if (slugParts.length >= 2) {
+        const locationSlug = slugParts[1]; // e.g. "karsiyaka-girne"
+        // Remove city name from the end to get district
+        const cityNames = ["girne", "lefkosa", "lefkoşa", "gazimagusa", "gazimağusa",
+          "guzelyurt", "güzelyurt", "iskele", "lefke"];
+        let districtSlug = locationSlug;
+        for (const city of cityNames) {
+          const suffix = "-" + normalizeTurkish(city);
+          if (normalizeTurkish(districtSlug).endsWith(suffix)) {
+            districtSlug = districtSlug.substring(0, districtSlug.length - suffix.length);
+            break;
+          }
+        }
+        // Convert slug to title case (e.g. "karsiyaka" → "Karsiyaka")
+        if (districtSlug && districtSlug !== locationSlug.split("-")[0]) {
+          metadata.district = districtSlug
+            .split("-")
+            .map(w => w.charAt(0).toUpperCase() + w.slice(1))
+            .join(" ");
+        } else if (districtSlug) {
+          metadata.district = districtSlug.charAt(0).toUpperCase() + districtSlug.slice(1);
+        }
+      }
     }
 
     log(`Metadata: ${metadata.baslik} | ${metadata.fiyat} ${metadata.paraBirimi}`);

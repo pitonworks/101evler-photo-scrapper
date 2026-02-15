@@ -27,4 +27,14 @@ Aidat (belirtilmezse "-"), Havuz (ortak/özel/belirtilmemiş), Otopark (default:
 Krediye Uygun, Kimden (emlak ofisi), Tapu Türü, KDV-Trafo, Takas
 
 ## Bilinen Sorunlar
-- Gerçek form field name'leri henüz dry-run ile keşfedilmedi (formNames tahmini)
+- gelgezgor.com jQuery kullanıyor (Trumbowyg + autoNumeric) → native DOM events yetmez, jQuery.trigger() gerekli
+- Photo upload: Puppeteer uploadFile() site'ın custom uploader plugin'iyle çalışmıyor → base64 + DataTransfer yaklaşımı kullanılıyor
+- Submit button: Site JS validation'ı tüm alanlar dolduğunda + onay checkbox işaretlendiğinde butonu aktif eder
+
+## Keşfedilen Form Alan Adları (gelgezgor.com)
+- Asansör (büyük A, Türkçe ö), Havuz (büyük H), Otopark (büyük O), Kdv-Trafo (tire ile)
+- ilçe: AJAX ile il seçimi sonrası yükleniyor
+- fiyat: autoNumeric plugin kullanıyor
+- aciklama: Trumbowyg WYSIWYG editör
+- onay: custom styled checkbox (JS ile set gerekli)
+- buton: disabled=true, tüm required fields dolunca aktif olur

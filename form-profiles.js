@@ -62,7 +62,7 @@ const COMMON_FIELDS = {
     formNames: ["kimden"],
   },
   aciklama: {
-    required: true,
+    required: false,
     source: "aciklama",
     formNames: ["aciklama", "icerik", "description", "detay"],
   },
@@ -98,10 +98,10 @@ const RESIDENTIAL_FIELDS = {
   },
   asansor: {
     required: true,
-    // Derived: kat sayısı > 5 ise "Var", değilse "Yok"
+    // Derived: kat sayısı > 5 → Var, <= 3 → Hayır, arası → Belirtilmemiş
     source: "_derived.asansor",
-    default: "Yok",
-    formNames: ["asansor", "asansör", "elevator"],
+    default: "Hayır",
+    formNames: ["Asansör", "asansor", "asansör", "elevator"],
   },
   banyo_sayisi: {
     required: true,
@@ -126,6 +126,9 @@ const RESIDENTIAL_FIELDS = {
     required: true,
     source: "details.Eşya Durumu",
     sourceAlt: ["details.esya durumu", "details.eşyalı", "details.esyali"],
+    default: "Belirtilmemiş",
+    // "-" from 101evler means not specified
+    valueMap: { "-": "Belirtilmemiş" },
     formNames: ["esyali", "eşyalı", "furnished"],
   },
   kullanim_durumu: {
@@ -152,36 +155,43 @@ const RESIDENTIAL_FIELDS = {
   havuz: {
     required: true,
     source: "_derived.havuz",
-    default: "Belirtilmemiş",
-    formNames: ["havuz", "pool"],
+    default: "Hayır",
+    formNames: ["Havuz", "havuz", "pool"],
   },
   otopark: {
     required: true,
     source: "_derived.otopark",
     default: "Açık Otopark",
-    formNames: ["otopark", "parking"],
+    formNames: ["Otopark", "otopark", "parking"],
   },
   krediye_uygun: {
     required: true,
-    default: "Evet",
+    default: "Belirtilmemiş",
     formNames: ["krediye_uygun", "kredi"],
   },
   tapu_turu: {
     required: true,
     source: "details.Tapu Türü",
     sourceAlt: ["details.tapu turu", "details.tapu türü"],
-    default: "Koçan",
+    default: "Belirtilmemiş",
     formNames: ["tapu_turu", "tapu_türü", "tapu"],
   },
   kdv_trafo: {
     required: true,
-    default: "Yok",
-    formNames: ["kdv_trafo", "kdv"],
+    default: "Belirtilmemiş",
+    formNames: ["Kdv-Trafo", "kdv_trafo", "kdv"],
   },
   takas: {
     required: true,
     default: "Hayır",
     formNames: ["takas"],
+  },
+  arsa_metrekaresi: {
+    required: false,
+    source: "details.m²",
+    sourceAlt: ["details.m2", "details.Alan Ölçüsü", "details.alan olcusu", "details.Metrekare"],
+    extract: /(\d[\d.,]*)/,
+    formNames: ["arsa_metrekaresi"],
   },
 };
 
@@ -295,12 +305,14 @@ function deriveFields(metadata) {
 
   const derived = {};
 
-  // Asansör: kat sayısı > 5 ise genelde var
+  // Asansör: kat sayısı > 5 → Var, <= 3 → Hayır, arası → Belirtilmemiş
   const katSayisi = parseInt(
     details["Kat Sayısı"] || details["kat sayısı"] ||
     details["kat sayisi"] || details["toplam kat"] || "0"
   );
-  derived.asansor = katSayisi >= 5 ? "Var" : "Yok";
+  if (katSayisi >= 5) derived.asansor = "Var";
+  else if (katSayisi <= 3 && katSayisi > 0) derived.asansor = "Hayır";
+  else derived.asansor = "Belirtilmemiş";
 
   // Isıtma: VRF varsa VRF, yoksa Klima
   if (text.includes("vrf")) {
@@ -330,7 +342,7 @@ function deriveFields(metadata) {
   } else if (text.includes("havuz") || text.includes("pool")) {
     derived.havuz = "Ortak";
   } else {
-    derived.havuz = "Belirtilmemiş";
+    derived.havuz = "Hayır";
   }
 
   // Otopark: genelde açık, bazen kapalı
@@ -420,6 +432,11 @@ function mapMetadataToForm(profile, metadata) {
     if (value && fieldDef.extract && typeof value === "string") {
       const match = value.match(fieldDef.extract);
       if (match) value = match[1];
+    }
+
+    // Apply valueMap (e.g. "-" → "Belirtilmemiş")
+    if (value && fieldDef.valueMap && fieldDef.valueMap[value]) {
+      value = fieldDef.valueMap[value];
     }
 
     // Apply default

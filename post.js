@@ -1,3 +1,5 @@
+const fs = require("fs");
+const path = require("path");
 const { launchBrowser, setupPage } = require("./browser");
 const { getProfile, mapMetadataToForm, deriveFields } = require("./form-profiles");
 const { enrichMetadata } = require("./description-parser");
@@ -183,6 +185,25 @@ async function postListing(email, password, metadata, photoFiles, onProgress, op
     log("Filling form fields based on profile...");
 
     // Helper to fill a field by trying multiple possible names
+    // Helper: dispatch events so site JS detects value changes (native + jQuery)
+    const triggerEvents = async (selector) => {
+      await page.evaluate((sel) => {
+        const el = document.querySelector(sel);
+        if (!el) return;
+        // Native events in proper sequence
+        el.dispatchEvent(new Event("focus", { bubbles: true }));
+        el.dispatchEvent(new Event("input", { bubbles: true }));
+        el.dispatchEvent(new Event("change", { bubbles: true }));
+        el.dispatchEvent(new Event("blur", { bubbles: true }));
+        // jQuery events if available (gelgezgor uses jQuery for Trumbowyg + autoNumeric)
+        if (typeof jQuery !== "undefined") {
+          jQuery(el).trigger("change").trigger("input");
+        } else if (typeof $ !== "undefined" && $.fn && $.fn.trigger) {
+          $(el).trigger("change").trigger("input");
+        }
+      }, selector);
+    };
+
     const fillField = async (name, value) => {
       if (!value || !fieldMap[name]) return false;
       try {
@@ -193,11 +214,22 @@ async function postListing(email, password, metadata, photoFiles, onProgress, op
           const options = fieldMap[name].options || [];
           const matchedValue = fuzzyMatchOption(options, value) || value;
           await page.select(selector, matchedValue);
+          // Also set via jQuery for sites using jQuery event handlers
+          await page.evaluate((sel, val) => {
+            const el = document.querySelector(sel);
+            if (!el) return;
+            if (typeof jQuery !== "undefined") {
+              jQuery(el).val(val).trigger("change");
+            }
+          }, selector, matchedValue);
           log(`  Set ${name} = ${value} (matched: ${matchedValue})`);
         } else if (fieldMap[name].tag === "textarea") {
           await page.evaluate(
             (sel, val) => {
-              document.querySelector(sel).value = val;
+              const el = document.querySelector(sel);
+              el.value = val;
+              el.dispatchEvent(new Event("input", { bubbles: true }));
+              el.dispatchEvent(new Event("change", { bubbles: true }));
             },
             selector,
             value
@@ -206,6 +238,21 @@ async function postListing(email, password, metadata, photoFiles, onProgress, op
         } else {
           await page.click(selector, { clickCount: 3 });
           await page.type(selector, String(value), { delay: 30 });
+          // Also set via native setter + jQuery for robust detection
+          await page.evaluate((sel, val) => {
+            const el = document.querySelector(sel);
+            if (!el) return;
+            // Native input value setter (bypasses getter/setter overrides)
+            const nativeSetter = Object.getOwnPropertyDescriptor(
+              window.HTMLInputElement.prototype, "value"
+            )?.set;
+            if (nativeSetter) nativeSetter.call(el, val);
+            el.dispatchEvent(new Event("input", { bubbles: true }));
+            el.dispatchEvent(new Event("change", { bubbles: true }));
+            if (typeof jQuery !== "undefined") {
+              jQuery(el).trigger("change").trigger("input");
+            }
+          }, selector, String(value));
           log(`  Set ${name} = ${value}`);
         }
         return true;
@@ -216,10 +263,40 @@ async function postListing(email, password, metadata, photoFiles, onProgress, op
     };
 
     // Helper to fill by trying multiple possible form field names
+    // First tries exact match, then keyword-based search in all field names
     const fillByFormNames = async (formNames, value) => {
+      // 1. Exact match
       for (const name of formNames) {
         if (fieldMap[name]) {
           return await fillField(name, value);
+        }
+      }
+      // 2. Keyword search: find a field whose name contains one of our keywords
+      //    Skip very short field names (< 3 chars) to avoid false matches like "s", "il"
+      const allFieldNames = Object.keys(fieldMap);
+      for (const keyword of formNames) {
+        if (keyword.length < 3) continue;
+        const normKeyword = normalizeTurkish(keyword);
+        for (const fname of allFieldNames) {
+          if (fname.length < 3) continue; // skip short names like "s"
+          const normFname = normalizeTurkish(fname);
+          if (normFname === normKeyword) {
+            log(`  Fuzzy match: "${keyword}" → "${fname}"`);
+            return await fillField(fname, value);
+          }
+        }
+      }
+      // 3. Partial match (only if keyword is fully contained in field name)
+      for (const keyword of formNames) {
+        if (keyword.length < 3) continue;
+        const normKeyword = normalizeTurkish(keyword);
+        for (const fname of allFieldNames) {
+          if (fname.length < 3) continue;
+          const normFname = normalizeTurkish(fname);
+          if (normFname.includes(normKeyword) && normFname.length <= normKeyword.length + 5) {
+            log(`  Fuzzy match: "${keyword}" → "${fname}"`);
+            return await fillField(fname, value);
+          }
         }
       }
       return false;
@@ -236,13 +313,62 @@ async function postListing(email, password, metadata, photoFiles, onProgress, op
         const ilField = fieldMap["il"] || fieldMap["sehir"] || fieldMap["city"];
         if (ilField) {
           const ilName = ilField.name;
-          await page.select(`[name="${ilName}"]`, String(metadata.cityId));
+          const ilSelector = `[name="${ilName}"]`;
+          await page.select(ilSelector, String(metadata.cityId));
+          // Trigger jQuery change to fire AJAX cascade for ilce
+          await page.evaluate((sel, val) => {
+            const el = document.querySelector(sel);
+            if (!el) return;
+            if (typeof jQuery !== "undefined") {
+              jQuery(el).val(val).trigger("change");
+            }
+          }, ilSelector, String(metadata.cityId));
           log(`  Set ${ilName} = ${metadata.cityId} (${metadata.cityName})`);
           log("  Waiting for ilce AJAX...");
-          await new Promise((r) => setTimeout(r, 2000));
+          await new Promise((r) => setTimeout(r, 3000));
           filledFields.push(key);
           continue;
         }
+      }
+
+      if (key === "ilce" && metadata.district) {
+        // İlçe is loaded via AJAX after il selection - try to find and fill it
+        log(`  Looking for ilce select after AJAX...`);
+        try {
+          // Search for any select that now has options matching our district
+          const ilceResult = await page.evaluate((district) => {
+            const selects = document.querySelectorAll("select");
+            for (const sel of selects) {
+              if (sel.name === "il" || sel.name === "s" || sel.options.length < 2) continue;
+              for (const opt of sel.options) {
+                const optText = opt.textContent.trim().toLowerCase();
+                const distLower = district.toLowerCase();
+                if (optText.includes(distLower) || distLower.includes(optText)) {
+                  sel.value = opt.value;
+                  sel.dispatchEvent(new Event("change", { bubbles: true }));
+                  // jQuery trigger for AJAX cascade
+                  if (typeof jQuery !== "undefined") {
+                    jQuery(sel).val(opt.value).trigger("change");
+                  }
+                  return { name: sel.name, value: opt.value, text: opt.textContent.trim() };
+                }
+              }
+            }
+            return null;
+          }, metadata.district);
+
+          if (ilceResult) {
+            log(`  Set ${ilceResult.name} = ${metadata.district} (matched: ${ilceResult.text})`);
+            filledFields.push(key);
+          } else {
+            log(`  Warning: ilce "${metadata.district}" not found in AJAX-loaded options`);
+            skippedFields.push(key);
+          }
+        } catch (err) {
+          log(`  Warning: could not fill ilce: ${err.message}`);
+          skippedFields.push(key);
+        }
+        continue;
       }
 
       if (key === "fiyat" && metadata.fiyat) {
@@ -293,8 +419,104 @@ async function postListing(email, password, metadata, photoFiles, onProgress, op
         filledFields.push(key);
       } else {
         skippedFields.push(key);
-        log(`  Skipped ${key}: no matching form field found (tried: ${entry.formNames.join(", ")})`);
+        // Search for similar field names to suggest
+        const allNames = Object.keys(fieldMap);
+        const suggestions = [];
+        for (const keyword of entry.formNames) {
+          const normK = normalizeTurkish(keyword);
+          for (const fn of allNames) {
+            const normFn = normalizeTurkish(fn);
+            // Partial match in either direction
+            if (normFn.includes(normK.substring(0, 3)) || normK.includes(normFn.substring(0, 3))) {
+              if (!suggestions.includes(fn) && suggestions.length < 5) suggestions.push(fn);
+            }
+          }
+        }
+        log(`  Skipped ${key}: tried [${entry.formNames.join(", ")}]${suggestions.length ? ` | Similar: [${suggestions.join(", ")}]` : ""}`);
       }
+    }
+
+    // Fill contact fields (yetkili, yetkili_tel) - always required
+    if (fieldMap["yetkili"]) {
+      // Check the "use profile contact" checkbox first
+      try {
+        const uyeCheckbox = await page.$('input[name="uye_numara"]');
+        if (uyeCheckbox) {
+          const isChecked = await page.evaluate(el => el.checked, uyeCheckbox);
+          if (!isChecked) {
+            await uyeCheckbox.click();
+            log("  Checked 'use profile contact info'");
+            await new Promise((r) => setTimeout(r, 500));
+          }
+        }
+      } catch (err) {
+        log(`  Warning: could not check uye_numara: ${err.message}`);
+      }
+    }
+
+    // Check onay (terms) checkbox - use JS + jQuery since it may be a custom styled checkbox
+    try {
+      const onaySet = await page.evaluate(() => {
+        const cb = document.querySelector('input[name="onay"]');
+        if (!cb) return "not found";
+        cb.checked = true;
+        cb.dispatchEvent(new Event("change", { bubbles: true }));
+        cb.dispatchEvent(new Event("click", { bubbles: true }));
+        cb.dispatchEvent(new Event("input", { bubbles: true }));
+        // jQuery trigger
+        if (typeof jQuery !== "undefined") {
+          jQuery(cb).prop("checked", true).trigger("change").trigger("click");
+        }
+        // Also try clicking the label if checkbox is hidden
+        const label = cb.closest("label") || document.querySelector('label[for="onay"]');
+        if (label) label.click();
+        return cb.checked ? "checked" : "failed";
+      });
+      log(`  Onay checkbox: ${onaySet}`);
+    } catch (err) {
+      log(`  Warning: could not check onay: ${err.message}`);
+    }
+
+    // Re-trigger change events on ALL filled fields to ensure validation catches everything
+    log("Triggering form validation on all fields...");
+    await page.evaluate(() => {
+      document.querySelectorAll("select, input, textarea").forEach(el => {
+        if (el.value && el.name && el.name !== "s") {
+          el.dispatchEvent(new Event("change", { bubbles: true }));
+          if (typeof jQuery !== "undefined") {
+            jQuery(el).trigger("change");
+          }
+        }
+      });
+      // Click body to trigger any blur-based validation
+      document.body.click();
+    });
+    await new Promise((r) => setTimeout(r, 2000));
+
+    // Debug: check which required/empty fields might be blocking submission
+    const emptyFields = await page.evaluate(() => {
+      const empty = [];
+      // Check HTML required fields
+      document.querySelectorAll("[required]").forEach(el => {
+        if (!el.value || el.value === "") {
+          empty.push({ name: el.name || el.id, tag: el.tagName, reason: "required+empty" });
+        }
+      });
+      // Check selects with default/empty value
+      document.querySelectorAll("select").forEach(el => {
+        if (el.name && el.name !== "s" && (el.value === "" || el.value === "0")) {
+          empty.push({ name: el.name, tag: "select", value: el.value, reason: "default/empty" });
+        }
+      });
+      return empty;
+    });
+    if (emptyFields.length > 0) {
+      log("Potentially empty/default fields:");
+      for (const f of emptyFields) {
+        log(`  ${f.name} (${f.tag}) - ${f.reason}${f.value !== undefined ? ` val="${f.value}"` : ""}`);
+      }
+    } else {
+      log("All fields appear to be filled.");
     }
 
     log(`Filled: ${filledFields.length}, Skipped: ${skippedFields.length}`);
@@ -328,35 +550,145 @@ async function postListing(email, password, metadata, photoFiles, onProgress, op
       return dryRunResult;
     }
 
-    // Upload photos
-    if (photoFiles && photoFiles.length > 0) {
-      log(`Uploading ${photoFiles.length} photos...`);
-      const fileInput = await page.$('input[type="file"]');
-      if (fileInput) {
-        await fileInput.uploadFile(...photoFiles);
-        log(`  Uploaded ${photoFiles.length} photo files`);
-        await new Promise((r) => setTimeout(r, 3000));
-      } else {
-        log("  Warning: no file input found for photo upload");
+    // Upload photos one by one using base64 + DataTransfer approach
+    // (Puppeteer's uploadFile() hangs with custom uploader plugins)
+    const maxPhotos = options.maxPhotos !== undefined ? options.maxPhotos : photoFiles.length;
+    if (photoFiles && photoFiles.length > 0 && maxPhotos > 0) {
+      const filesToUpload = photoFiles.slice(0, maxPhotos);
+      log(`Uploading ${filesToUpload.length} photos (of ${photoFiles.length} total)...`);
+
+      for (let i = 0; i < filesToUpload.length; i++) {
+        const filePath = filesToUpload[i];
+        const fileName = path.basename(filePath);
+        log(`  [${i + 1}/${filesToUpload.length}] Uploading ${fileName}...`);
+
+        try {
+          const fileBuffer = fs.readFileSync(filePath);
+          const fileBase64 = fileBuffer.toString("base64");
+          const mimeType = fileName.endsWith(".png") ? "image/png" : "image/jpeg";
+
+          const uploadResult = await page.evaluate(async ({ base64, name, mime }) => {
+            const input = document.querySelector('input[type="file"], input[name="files[]"]');
+            if (!input) return { ok: false, error: "no file input found" };
+
+            // Decode base64 to binary
+            const byteChars = atob(base64);
+            const byteArrays = [];
+            for (let offset = 0; offset < byteChars.length; offset += 1024) {
+              const slice = byteChars.slice(offset, offset + 1024);
+              const byteNumbers = new Array(slice.length);
+              for (let j = 0; j < slice.length; j++) {
+                byteNumbers[j] = slice.charCodeAt(j);
+              }
+              byteArrays.push(new Uint8Array(byteNumbers));
+            }
+            const blob = new Blob(byteArrays, { type: mime });
+            const file = new File([blob], name, { type: mime, lastModified: Date.now() });
+
+            // Use DataTransfer to create a FileList and set on input
+            const dt = new DataTransfer();
+            dt.items.add(file);
+            input.files = dt.files;
+
+            // Trigger events
+            input.dispatchEvent(new Event("change", { bubbles: true }));
+            input.dispatchEvent(new Event("input", { bubbles: true }));
+
+            // jQuery trigger
+            if (typeof jQuery !== "undefined") {
+              jQuery(input).trigger("change");
+            }
+
+            return { ok: true };
+          }, { base64: fileBase64, name: fileName, mime: mimeType });
+
+          if (uploadResult.ok) {
+            log(`  [${i + 1}/${filesToUpload.length}] Sent ${fileName}`);
+            // Wait for the site to process the upload
+            await new Promise((r) => setTimeout(r, 3000));
+          } else {
+            log(`  [${i + 1}/${filesToUpload.length}] Warning: ${uploadResult.error}`);
+          }
+        } catch (err) {
+          log(`  [${i + 1}/${filesToUpload.length}] Error: ${err.message}`);
+        }
       }
+      log("Photo upload complete");
     }
 
-    // Submit the form
-    log("Submitting listing...");
-    const submitButton = await page.$(
-      'button[type="submit"], input[type="submit"], button[name="buton"]'
-    );
-    if (submitButton) {
-      await Promise.all([
-        submitButton.click(),
-        page.waitForNavigation({ waitUntil: "networkidle2", timeout: 30000 }).catch(() => {}),
-      ]);
-    } else {
-      await page.evaluate(() => {
-        const form = document.querySelector("form");
-        if (form) form.submit();
+    // Remove required from non-form fields (search bars) to avoid validation blocking
+    await page.evaluate(() => {
+      document.querySelectorAll('input[name="s"]').forEach(el => {
+        el.removeAttribute("required");
+        el.value = "x"; // fill with dummy value just in case
       });
-      await page.waitForNavigation({ waitUntil: "networkidle2", timeout: 30000 }).catch(() => {});
+    });
+    log("Cleaned stray required attributes");
+
+    // Wait for submit button to become enabled (with retries)
+    let btnStatus = "DISABLED";
+    for (let attempt = 1; attempt <= 5; attempt++) {
+      btnStatus = await page.evaluate(() => {
+        const btn = document.querySelector('#buton, button[name="buton"]');
+        if (!btn) return "not found";
+        return btn.disabled ? "DISABLED" : "ENABLED";
+      });
+      if (btnStatus === "ENABLED") break;
+      log(`  Submit button check ${attempt}/5: ${btnStatus}`);
+      if (attempt < 5) {
+        // Re-trigger validation on each retry
+        await page.evaluate(() => {
+          document.querySelectorAll("select, input").forEach(el => {
+            if (el.value && el.name && el.name !== "s") {
+              el.dispatchEvent(new Event("change", { bubbles: true }));
+            }
+          });
+          const cb = document.querySelector('input[name="onay"]');
+          if (cb) { cb.checked = true; cb.dispatchEvent(new Event("change", { bubbles: true })); }
+        });
+        await new Promise((r) => setTimeout(r, 1500));
+      }
+    }
+    log(`Submit button status: ${btnStatus}`);
+
+    // If still disabled, force enable as last resort
+    if (btnStatus === "DISABLED") {
+      log("  Force-enabling submit button as fallback...");
+      await page.evaluate(() => {
+        const btn = document.querySelector('#buton, button[name="buton"]');
+        if (btn) {
+          btn.removeAttribute("disabled");
+          btn.disabled = false;
+          // Also try jQuery
+          if (typeof jQuery !== "undefined") {
+            jQuery(btn).prop("disabled", false).removeAttr("disabled");
+          }
+        }
+      });
+      btnStatus = "FORCE_ENABLED";
+    }
+
+    // Submit via button click inside the correct form (the one with baslik/fiyat)
+    log("Submitting listing...");
+    const clicked = await page.evaluate(() => {
+      // Find the ilan form (contains baslik or fiyat field)
+      const forms = document.querySelectorAll("form");
+      for (const form of forms) {
+        if (form.querySelector('[name="baslik"]') || form.querySelector('[name="fiyat"]')) {
+          const btn = form.querySelector('#buton, button[name="buton"], button[type="submit"]');
+          if (btn) {
+            btn.click();
+            return btn.textContent || btn.value || "button";
+          }
+        }
+      }
+      return null;
+    });
+    if (clicked) {
+      log(`  Clicked submit button: "${clicked}"`);
+      await page.waitForNavigation({ waitUntil: "networkidle2", timeout: 60000 }).catch(() => {});
+    } else {
+      log("  Warning: no submit button found in listing form");
     }
 
     // Check result
@@ -383,11 +715,33 @@ async function postListing(email, password, metadata, photoFiles, onProgress, op
       }
       return { success: true, listingUrl };
     } else {
+      // Capture all error/warning messages on the page
       const errorMsg = await page.evaluate(() => {
-        const alert = document.querySelector(".alert-danger, .error, .hata, [class*='error']");
-        return alert ? alert.textContent.trim() : null;
+        const errors = [];
+        // Standard error selectors
+        document.querySelectorAll(".alert-danger, .alert-warning, .error, .hata, [class*='error'], [class*='uyari'], .text-danger, .invalid-feedback").forEach(el => {
+          const text = el.textContent.trim();
+          if (text && text.length > 2 && !errors.includes(text)) errors.push(text);
+        });
+        // HTML5 validation messages
+        document.querySelectorAll(":invalid").forEach(el => {
+          if (el.validationMessage && !errors.includes(el.validationMessage)) {
+            const name = el.name || el.id || "unknown";
+            errors.push(`${name}: ${el.validationMessage}`);
+          }
+        });
+        // Required but empty fields
+        document.querySelectorAll("[required]").forEach(el => {
+          if (!el.value || el.value === "") {
+            const name = el.name || el.id || "unknown";
+            const label = el.closest("label")?.textContent?.trim() || "";
+            errors.push(`Empty required: ${name} ${label}`);
+          }
+        });
+        return errors.length ? errors.join(" | ") : null;
       });
-      log(`Warning: submission may have failed. ${errorMsg || ""}`);
+      log(`Warning: submission may have failed.`);
+      if (errorMsg) log(`  Errors: ${errorMsg}`);
       return { success: false, listingUrl: resultUrl, error: errorMsg };
     }
   } finally {

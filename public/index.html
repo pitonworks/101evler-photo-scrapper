@@ -339,6 +339,10 @@
         <label for="ggPassword">gelgezgor.com Password</label>
         <input type="password" id="ggPassword" placeholder="Password">
       </div>
+      <div class="form-group">
+        <label for="maxPhotos">Max Foto (boş = hepsi)</label>
+        <input type="text" id="maxPhotos" placeholder="örn: 5">
+      </div>
       <div class="form-group checkbox-group">
         <label class="checkbox-label">
           <input type="checkbox" id="dryRunCheck">
@@ -661,6 +665,7 @@
       const email = document.getElementById("ggEmail").value.trim();
       const password = document.getElementById("ggPassword").value.trim();
       const dryRun = document.getElementById("dryRunCheck").checked;
+      const maxPhotos = document.getElementById("maxPhotos").value.trim();
       const btn = document.getElementById("transferBtn");
       const log = document.getElementById("transferLog");
       const preview = document.getElementById("metadataPreview");
@@ -684,7 +689,7 @@
         const response = await fetch("/transfer", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ url, email, password, dryRun })
+          body: JSON.stringify({ url, email, password, dryRun, maxPhotos: maxPhotos || undefined })
         });
 
         await readSSEStream(response, log, {

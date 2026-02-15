@@ -3,6 +3,7 @@ const puppeteer = require("puppeteer");
 async function launchBrowser(headless = "new") {
   return puppeteer.launch({
     headless,
+    protocolTimeout: 600000, // 10 min for large file uploads
     args: [
       "--no-sandbox",
       "--disable-setuid-sandbox",

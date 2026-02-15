@@ -86,7 +86,7 @@ app.post("/scrape", (req, res) => {
 });
 
 app.post("/transfer", (req, res) => {
-  const { url, email, password, dryRun } = req.body;
+  const { url, email, password, dryRun, maxPhotos } = req.body;
 
   if (!url || !email || !password) {
     return res.status(400).json({ error: "url, email, and password are required" });
@@ -144,7 +144,7 @@ app.post("/transfer", (req, res) => {
         listing.metadata,
         listing.photos.files,
         onProgress,
-        { dryRun: !!dryRun }
+        { dryRun: !!dryRun, maxPhotos: maxPhotos ? Number(maxPhotos) : undefined }
       );
 
       if (result.dryRun) {

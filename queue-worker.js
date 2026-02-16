@@ -141,12 +141,25 @@ function start(credentials, options = {}) {
             ),
           ]);
 
-          store.updateItem(item.id, {
-            status: "done",
-            completedAt: new Date().toISOString(),
-            result,
-          });
-          broadcast("item-done", { itemId: item.id, result });
+          if (result.success || result.dryRun) {
+            store.updateItem(item.id, {
+              status: "done",
+              completedAt: new Date().toISOString(),
+              result,
+            });
+            broadcast("item-done", { itemId: item.id, result });
+          } else {
+            store.updateItem(item.id, {
+              status: "failed",
+              completedAt: new Date().toISOString(),
+              error: result.error || "Submission failed (success=false)",
+              result,
+            });
+            broadcast("item-failed", {
+              itemId: item.id,
+              error: result.error || "Submission failed",
+            });
+          }
         } catch (err) {
           store.updateItem(item.id, {
             status: "failed",

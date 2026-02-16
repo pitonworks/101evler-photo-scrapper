@@ -42,10 +42,13 @@ function fuzzyMatchOption(options, target) {
       if (normText === syn) return opt.value;
     }
   }
-  // Contains match
-  for (const opt of options) {
-    if (normalizeTurkish(opt.text).includes(normalizedTarget)) return opt.value;
-    if (normalizedTarget.includes(normalizeTurkish(opt.text))) return opt.value;
+  // Contains match (skip very short targets to avoid false positives like "0" matching "10")
+  if (normalizedTarget.length >= 3) {
+    for (const opt of options) {
+      const normText = normalizeTurkish(opt.text);
+      if (normText.includes(normalizedTarget)) return opt.value;
+      if (normText.length >= 3 && normalizedTarget.includes(normText)) return opt.value;
+    }
   }
   return null;
 }
@@ -193,6 +196,63 @@ async function postListing(email, password, metadata, photoFiles, onProgress, op
   );
 
   try {
+    // Upload photos FIRST (before form fill) via fileuploader plugin
+    const maxPhotos = options.maxPhotos !== undefined ? options.maxPhotos : photoFiles.length;
+    if (!dryRun && photoFiles && photoFiles.length > 0 && maxPhotos > 0) {
+      const filesToUpload = photoFiles.slice(0, maxPhotos);
+      log(`Uploading ${filesToUpload.length} photos via fileuploader plugin...`);
+
+      let uploadedCount = 0;
+      for (let i = 0; i < filesToUpload.length; i++) {
+        const fp = filesToUpload[i];
+        const fn = path.basename(fp);
+        const fz = fs.statSync(fp).size;
+        const tag = `[${i + 1}/${filesToUpload.length}]`;
+        const t0 = Date.now();
+
+        try {
+          // Re-acquire file input each time (plugin may replace the element)
+          const fileInput = await page.$('input[type="file"][name="files[]"]');
+          if (!fileInput) {
+            log(`  ${tag} ${fn} - file input not found, stopping uploads`);
+            break;
+          }
+
+          await fileInput.uploadFile(fp);
+
+          // Dispatch change event to trigger the plugin's upload handler
+          await page.evaluate(() => {
+            const el = document.querySelector('input[type="file"][name="files[]"]');
+            if (el) el.dispatchEvent(new Event("change", { bubbles: true }));
+          });
+
+          // Wait for upload-successful count to increase
+          let success = false;
+          for (let poll = 0; poll < 60; poll++) {
+            await new Promise((r) => setTimeout(r, 250));
+            const count = await page.evaluate(() =>
+              document.querySelectorAll(".fileuploader-item.upload-successful").length
+            );
+            if (count > uploadedCount) {
+              success = true;
+              uploadedCount = count;
+              break;
+            }
+          }
+
+          const elapsed = ((Date.now() - t0) / 1000).toFixed(1);
+          if (success) {
+            log(`  ${tag} ${fn} OK (${(fz / 1024).toFixed(0)} KB, ${elapsed}s)`);
+          } else {
+            log(`  ${tag} ${fn} TIMEOUT after ${elapsed}s`);
+          }
+        } catch (err) {
+          log(`  ${tag} ${fn} Error: ${err.message}`);
+        }
+      }
+      log(`Photos: ${uploadedCount}/${filesToUpload.length} uploaded`);
+    }
+
     // Build name->field map
     const fieldMap = {};
     for (const f of fields) {
@@ -245,11 +305,33 @@ async function postListing(email, password, metadata, photoFiles, onProgress, op
             return el ? el.value : null;
           }, selector);
           if (!actualValue || actualValue === "" || actualValue === "0") {
-            const optTexts = options
-              .filter(o => o.value && o.value !== "0" && o.value !== "")
-              .map(o => `"${o.text}"(${o.value})`)
-              .slice(0, 10);
-            log(`  WARNING: ${name} value not set! Tried "${value}" → "${matchedValue}". Options: ${optTexts.join(", ")}`);
+            // Fallback: prefer "Belirtilmemiş" option (safe default), then first valid option
+            const placeholders = ["seciniz", "secim yapiniz", "seciniz...", "sec"];
+            const validOptions = options.filter(o => {
+              if (!o.value || o.value === "0" || o.value === "") return false;
+              const normText = normalizeTurkish(o.text.trim());
+              return !placeholders.includes(normText);
+            });
+            const belirtilmemis = validOptions.find(o => normalizeTurkish(o.text) === "belirtilmemis");
+            const fallbackOpt = belirtilmemis || validOptions[0];
+            if (fallbackOpt) {
+              const fallbackValue = fallbackOpt.value;
+              const fallbackText = fallbackOpt.text;
+              await page.select(selector, fallbackValue);
+              await page.evaluate((sel, val) => {
+                const el = document.querySelector(sel);
+                if (!el) return;
+                if (typeof jQuery !== "undefined") {
+                  jQuery(el).val(val).trigger("change");
+                }
+              }, selector, fallbackValue);
+              log(`  Fallback: ${name} = ${fallbackText} (original: ${value})`);
+            } else {
+              const optTexts = options
+                .map(o => `"${o.text}"(${o.value})`)
+                .slice(0, 10);
+              log(`  WARNING: ${name} value not set! Tried "${value}" → "${matchedValue}". No valid fallback. Options: ${optTexts.join(", ")}`);
+            }
           } else {
             log(`  Set ${name} = ${value} (matched: ${matchedValue})`);
           }
@@ -354,74 +436,170 @@ async function postListing(email, password, metadata, photoFiles, onProgress, op
             }
           }, ilSelector, String(metadata.cityId));
           log(`  Set ${ilName} = ${metadata.cityId} (${metadata.cityName})`);
-          log("  Waiting for ilce AJAX...");
-          // Wait for ilçe options to load via AJAX
-          await new Promise((r) => setTimeout(r, 4000));
+          log("  Waiting for ilce AJAX (polling for select[name=ilce])...");
+
+          // Poll specifically for an ilçe select to appear in the DOM with options
+          // The ilçe select is dynamically injected by AJAX after il change
+          let ilceLoaded = false;
+          for (let attempt = 1; attempt <= 2; attempt++) {
+            for (let poll = 0; poll < 30; poll++) {
+              await new Promise((r) => setTimeout(r, 500));
+              const optCount = await page.evaluate(() => {
+                // Only check for selects explicitly named ilce/ilçe/semt/district
+                const names = ["ilce", "ilçe", "semt", "district"];
+                for (const name of names) {
+                  const sel = document.querySelector(`select[name="${name}"]`);
+                  if (sel && sel.options.length >= 2) return sel.options.length;
+                }
+                return 0;
+              });
+              if (optCount >= 2) {
+                ilceLoaded = true;
+                log(`  İlçe select loaded (${optCount} options, ${(poll + 1) * 0.5}s, attempt ${attempt})`);
+                break;
+              }
+            }
+            if (ilceLoaded) break;
+
+            // Retry: re-trigger il change event
+            if (attempt < 2) {
+              log("  İlçe select not found after 15s, retrying il change event...");
+              await page.evaluate((sel, val) => {
+                const el = document.querySelector(sel);
+                if (!el) return;
+                el.value = val;
+                el.dispatchEvent(new Event("change", { bubbles: true }));
+                if (typeof jQuery !== "undefined") {
+                  jQuery(el).val(val).trigger("change");
+                }
+              }, ilSelector, String(metadata.cityId));
+            }
+          }
+
+          if (!ilceLoaded) {
+            log("  WARNING: İlçe select did not appear after 2 attempts (30s total)");
+          }
           filledFields.push(key);
           continue;
         }
       }
 
       if (key === "ilce" && metadata.district) {
-        // İlçe is loaded via AJAX after il selection
-        log(`  Looking for ilce select after AJAX...`);
+        // İlçe is loaded via AJAX after il selection — search DOM directly (not fieldMap)
+        log(`  Selecting ilce: "${metadata.district}"...`);
         try {
           const ilceResult = await page.evaluate((district) => {
-            const selects = document.querySelectorAll("select");
-            for (const sel of selects) {
-              if (sel.name === "il" || sel.name === "s" || sel.options.length < 2) continue;
-              for (const opt of sel.options) {
-                const optText = opt.textContent.trim().toLowerCase();
-                const distLower = district.toLowerCase();
-                if (optText.includes(distLower) || distLower.includes(optText)) {
-                  sel.value = opt.value;
-                  sel.dispatchEvent(new Event("change", { bubbles: true }));
-                  if (typeof jQuery !== "undefined") {
-                    jQuery(sel).val(opt.value).trigger("change");
-                  }
-                  return { name: sel.name, value: opt.value, text: opt.textContent.trim() };
-                }
-              }
+            // Turkish normalization inside browser context
+            function norm(s) {
+              return s.replace(/İ/g, "I").toLowerCase()
+                .replace(/ı/g, "i").replace(/ğ/g, "g").replace(/ü/g, "u")
+                .replace(/ş/g, "s").replace(/ö/g, "o").replace(/ç/g, "c");
             }
-            return null;
+            const distNorm = norm(district);
+
+            // Find the ilçe select directly from DOM (dynamically injected by AJAX)
+            const ilceNames = ["ilce", "ilçe", "semt", "district"];
+            let ilceSel = null;
+            for (const name of ilceNames) {
+              const el = document.querySelector(`select[name="${name}"]`);
+              if (el && el.options.length >= 2) { ilceSel = el; break; }
+            }
+
+            if (!ilceSel) return { error: "no ilce select found in DOM" };
+
+            // Try to match district name
+            const allOpts = Array.from(ilceSel.options).map(o => ({
+              value: o.value, text: o.textContent.trim(), norm: norm(o.textContent.trim())
+            }));
+
+            // 1. Exact match
+            let match = allOpts.find(o => o.norm === distNorm);
+            // 2. Contains match
+            if (!match) match = allOpts.find(o => o.norm.includes(distNorm) || distNorm.includes(o.norm));
+            // 3. Word-start match (e.g. "girne merkez" matches "Girne Merkez")
+            if (!match) match = allOpts.find(o => o.norm.startsWith(distNorm) || distNorm.startsWith(o.norm));
+
+            if (match) {
+              ilceSel.value = match.value;
+              ilceSel.dispatchEvent(new Event("change", { bubbles: true }));
+              if (typeof jQuery !== "undefined") {
+                jQuery(ilceSel).val(match.value).trigger("change");
+              }
+              return { name: ilceSel.name, value: match.value, text: match.text };
+            }
+
+            return {
+              error: "district not matched",
+              selectName: ilceSel.name,
+              optCount: ilceSel.options.length,
+              sampleOpts: allOpts.slice(0, 10).map(o => o.text),
+            };
           }, metadata.district);
 
-          if (ilceResult) {
+          if (ilceResult && !ilceResult.error) {
             log(`  Set ${ilceResult.name} = ${metadata.district} (matched: ${ilceResult.text})`);
             filledFields.push(key);
 
-            // Wait for mahalle AJAX cascade after ilçe selection
+            // Wait for mahalle AJAX cascade after ilçe selection (polling)
             log("  Waiting for mahalle AJAX...");
-            await new Promise((r) => setTimeout(r, 3000));
+            let mahalleLoaded = false;
+            for (let poll = 0; poll < 20; poll++) {
+              await new Promise((r) => setTimeout(r, 500));
+              const mCount = await page.evaluate(() => {
+                const selects = document.querySelectorAll("select");
+                for (const sel of selects) {
+                  if (sel.name && sel.name.toLowerCase().includes("mahalle") && sel.options.length >= 2) {
+                    return sel.options.length;
+                  }
+                }
+                return 0;
+              });
+              if (mCount >= 2) {
+                mahalleLoaded = true;
+                log(`  Mahalle options loaded (${mCount} options, ${(poll + 1) * 0.5}s)`);
+                break;
+              }
+            }
 
-            // Try to select first non-empty mahalle option
-            const mahalleResult = await page.evaluate(() => {
-              const selects = document.querySelectorAll("select");
-              for (const sel of selects) {
-                if (sel.name && sel.name.toLowerCase().includes("mahalle") && sel.options.length >= 2) {
-                  // Select first real option (skip placeholder)
-                  for (const opt of sel.options) {
-                    if (opt.value && opt.value !== "" && opt.value !== "0") {
-                      sel.value = opt.value;
-                      sel.dispatchEvent(new Event("change", { bubbles: true }));
-                      if (typeof jQuery !== "undefined") {
-                        jQuery(sel).val(opt.value).trigger("change");
+            if (mahalleLoaded) {
+              // Select first non-placeholder mahalle option
+              const mahalleResult = await page.evaluate(() => {
+                function norm(s) {
+                  return s.replace(/İ/g, "I").toLowerCase()
+                    .replace(/ı/g, "i").replace(/ğ/g, "g").replace(/ü/g, "u")
+                    .replace(/ş/g, "s").replace(/ö/g, "o").replace(/ç/g, "c");
+                }
+                const placeholders = ["seciniz", "secim yapiniz", "sec"];
+                const selects = document.querySelectorAll("select");
+                for (const sel of selects) {
+                  if (sel.name && sel.name.toLowerCase().includes("mahalle") && sel.options.length >= 2) {
+                    for (const opt of sel.options) {
+                      if (opt.value && opt.value !== "" && opt.value !== "0" && !placeholders.includes(norm(opt.textContent.trim()))) {
+                        sel.value = opt.value;
+                        sel.dispatchEvent(new Event("change", { bubbles: true }));
+                        if (typeof jQuery !== "undefined") {
+                          jQuery(sel).val(opt.value).trigger("change");
+                        }
+                        return { name: sel.name, value: opt.value, text: opt.textContent.trim() };
                       }
-                      return { name: sel.name, value: opt.value, text: opt.textContent.trim() };
                     }
                   }
                 }
-              }
-              return null;
-            });
+                return null;
+              });
 
-            if (mahalleResult) {
-              log(`  Set ${mahalleResult.name} = ${mahalleResult.text}`);
+              if (mahalleResult) {
+                log(`  Set ${mahalleResult.name} = ${mahalleResult.text}`);
+              } else {
+                log("  No valid mahalle option found");
+              }
             } else {
-              log("  No mahalle select found or no options available");
+              log("  Mahalle select not loaded after 10s");
             }
           } else {
-            log(`  Warning: ilce "${metadata.district}" not found in AJAX-loaded options`);
+            const errInfo = ilceResult?.error || "unknown";
+            const sampleOpts = ilceResult?.sampleOpts ? ` Options: [${ilceResult.sampleOpts.join(", ")}]` : "";
+            log(`  Warning: ilce "${metadata.district}" not matched (${errInfo}).${sampleOpts}`);
             skippedFields.push(key);
           }
         } catch (err) {
@@ -445,28 +623,46 @@ async function postListing(email, password, metadata, photoFiles, onProgress, op
         }
       }
 
-      if (key === "aciklama" && metadata.aciklama) {
+      if (key === "aciklama") {
+        const htmlContent = metadata.aciklama || entry.value || "";
+        if (!htmlContent) {
+          log("  Warning: no description content found");
+          skippedFields.push(key);
+          continue;
+        }
         // Description may use Trumbowyg WYSIWYG editor
         log("  Setting description...");
         const editorSet = await page.evaluate((html) => {
+          // 1. Set Trumbowyg contenteditable editor
           const editor =
             document.querySelector(".trumbowyg-editor") ||
             document.querySelector("[contenteditable='true']");
           if (editor) {
             editor.innerHTML = html;
+            // 2. Also sync to hidden textarea (Trumbowyg reads from it on submit)
+            const textarea = document.querySelector('textarea[name="aciklama"], textarea[name="icerik"], textarea[name="detay"], textarea[name="description"]');
+            if (textarea) {
+              textarea.value = html;
+              textarea.dispatchEvent(new Event("change", { bubbles: true }));
+            }
+            // 3. Trigger Trumbowyg sync via jQuery
+            if (typeof jQuery !== "undefined") {
+              jQuery(".trumbowyg-editor").trigger("input").trigger("change");
+              // Trumbowyg stores reference — try textareaChange event
+              jQuery("textarea").first().trumbowyg && jQuery("textarea").first().trumbowyg("html", html);
+            }
             return true;
           }
           return false;
-        }, metadata.aciklama);
+        }, htmlContent);
 
         if (editorSet) {
-          log("  Set description via WYSIWYG editor");
+          log("  Set description via WYSIWYG editor + hidden textarea");
           filledFields.push(key);
         } else {
-          const filled = await fillByFormNames(
-            entry.formNames,
-            metadata.aciklama.replace(/<[^>]*>/g, " ").trim()
-          );
+          // No WYSIWYG — try plain textarea
+          const plainText = htmlContent.replace(/<[^>]*>/g, " ").replace(/\s+/g, " ").trim();
+          const filled = await fillByFormNames(entry.formNames, plainText);
           if (filled) filledFields.push(key);
           else skippedFields.push(key);
         }
@@ -537,11 +733,13 @@ async function postListing(email, password, metadata, photoFiles, onProgress, op
       log(`  Warning: could not check onay: ${err.message}`);
     }
 
-    // Re-trigger change events on ALL filled fields to ensure validation catches everything
-    log("Triggering form validation on all fields...");
+    // Re-trigger change events on filled fields to ensure validation catches everything
+    // SKIP il/ilce — re-triggering il fires AJAX which resets the ilçe select
+    log("Triggering form validation on all fields (excluding il/ilce)...");
     await page.evaluate(() => {
+      const skipNames = ["il", "ilce", "ilçe", "semt", "mahalle"];
       document.querySelectorAll("select, input, textarea").forEach(el => {
-        if (el.value && el.name && el.name !== "s") {
+        if (el.value && el.name && el.name !== "s" && !skipNames.includes(el.name)) {
           el.dispatchEvent(new Event("change", { bubbles: true }));
           if (typeof jQuery !== "undefined") {
             jQuery(el).trigger("change");
@@ -610,116 +808,7 @@ async function postListing(email, password, metadata, photoFiles, onProgress, op
       return dryRunResult;
     }
 
-    // Upload photos using Puppeteer's native uploadFile + AJAX completion detection
-    const maxPhotos = options.maxPhotos !== undefined ? options.maxPhotos : photoFiles.length;
-    if (photoFiles && photoFiles.length > 0 && maxPhotos > 0) {
-      const filesToUpload = photoFiles.slice(0, maxPhotos);
-      log(`Uploading ${filesToUpload.length} photos (of ${photoFiles.length} total)...`);
-
-      // Count existing thumbnails before uploads start
-      const initialThumbCount = await page.evaluate(() => {
-        return document.querySelectorAll(".gorsel-onizleme img, .upload-preview img, [class*='thumb'] img, [class*='preview'] img, .gorsel_kutu img").length;
-      });
-      log(`  Initial thumbnails on page: ${initialThumbCount}`);
-
-      for (let i = 0; i < filesToUpload.length; i++) {
-        const filePath = filesToUpload[i];
-        const fileName = path.basename(filePath);
-        const fileSize = fs.statSync(filePath).size;
-        log(`  [${i + 1}/${filesToUpload.length}] Uploading ${fileName} (${(fileSize / 1024).toFixed(0)} KB)...`);
-
-        try {
-          // Find fresh file input each iteration (site may recreate it after each upload)
-          const inputHandle = await page.$('input[type="file"]');
-          if (!inputHandle) {
-            log(`  [${i + 1}/${filesToUpload.length}] Warning: no file input found, skipping`);
-            continue;
-          }
-
-          // Use native Puppeteer uploadFile - much faster than base64
-          await inputHandle.uploadFile(filePath);
-
-          // Trigger change events for the upload plugin
-          await page.evaluate(() => {
-            const input = document.querySelector('input[type="file"]');
-            if (!input) return;
-            input.dispatchEvent(new Event("change", { bubbles: true }));
-            input.dispatchEvent(new Event("input", { bubbles: true }));
-            if (typeof jQuery !== "undefined") {
-              jQuery(input).trigger("change");
-            }
-          });
-
-          // Wait for upload AJAX to complete (check for new thumbnail or progress bar finishing)
-          const expectedThumbs = initialThumbCount + i + 1;
-          let uploaded = false;
-          for (let wait = 0; wait < 15; wait++) {
-            await new Promise((r) => setTimeout(r, 1000));
-            const currentState = await page.evaluate(() => {
-              const thumbs = document.querySelectorAll(".gorsel-onizleme img, .upload-preview img, [class*='thumb'] img, [class*='preview'] img, .gorsel_kutu img").length;
-              const progressBars = document.querySelectorAll(".progress-bar, [class*='progress']");
-              let uploading = false;
-              progressBars.forEach(bar => {
-                const width = bar.style.width;
-                if (width && width !== "100%" && width !== "0%") uploading = true;
-              });
-              return { thumbs, uploading };
-            });
-
-            if (currentState.thumbs >= expectedThumbs) {
-              uploaded = true;
-              log(`  [${i + 1}/${filesToUpload.length}] Done (${wait + 1}s, ${currentState.thumbs} thumbs)`);
-              break;
-            }
-            if (!currentState.uploading && wait >= 3) {
-              // No active progress bar and waited at least 3s - assume done
-              uploaded = true;
-              log(`  [${i + 1}/${filesToUpload.length}] Done (${wait + 1}s, no active upload)`);
-              break;
-            }
-          }
-
-          if (!uploaded) {
-            log(`  [${i + 1}/${filesToUpload.length}] Timeout after 15s, continuing...`);
-          }
-        } catch (err) {
-          log(`  [${i + 1}/${filesToUpload.length}] Error: ${err.message}`);
-          // If uploadFile fails, try base64 fallback for this file
-          try {
-            log(`  [${i + 1}/${filesToUpload.length}] Trying base64 fallback...`);
-            const fileBuffer = fs.readFileSync(filePath);
-            const fileBase64 = fileBuffer.toString("base64");
-            const mimeType = fileName.endsWith(".png") ? "image/png" : "image/jpeg";
-
-            await page.evaluate(({ base64, name, mime }) => {
-              const input = document.querySelector('input[type="file"]');
-              if (!input) return;
-              const byteChars = atob(base64);
-              const bytes = new Uint8Array(byteChars.length);
-              for (let j = 0; j < byteChars.length; j++) bytes[j] = byteChars.charCodeAt(j);
-              const blob = new Blob([bytes], { type: mime });
-              const file = new File([blob], name, { type: mime, lastModified: Date.now() });
-              const dt = new DataTransfer();
-              dt.items.add(file);
-              input.files = dt.files;
-              input.dispatchEvent(new Event("change", { bubbles: true }));
-              if (typeof jQuery !== "undefined") jQuery(input).trigger("change");
-            }, { base64: fileBase64, name: fileName, mime: mimeType });
-
-            await new Promise((r) => setTimeout(r, 3000));
-            log(`  [${i + 1}/${filesToUpload.length}] Base64 fallback sent`);
-          } catch (fallbackErr) {
-            log(`  [${i + 1}/${filesToUpload.length}] Base64 fallback also failed: ${fallbackErr.message}`);
-          }
-        }
-      }
-
-      // Final check: how many photos were uploaded
-      const finalThumbCount = await page.evaluate(() => {
-        return document.querySelectorAll(".gorsel-onizleme img, .upload-preview img, [class*='thumb'] img, [class*='preview'] img, .gorsel_kutu img").length;
-      });
-      log(`Photo upload complete: ${finalThumbCount - initialThumbCount} new thumbnails (was ${initialThumbCount}, now ${finalThumbCount})`);
-    }
+    // Photos already uploaded before form fill (see below)
 
     // Remove required from non-form fields (search bars) to avoid validation blocking
     await page.evaluate(() => {
@@ -741,10 +830,11 @@ async function postListing(email, password, metadata, photoFiles, onProgress, op
       if (btnStatus === "ENABLED") break;
       log(`  Submit button check ${attempt}/5: ${btnStatus}`);
       if (attempt < 5) {
-        // Re-trigger validation on each retry
+        // Re-trigger validation on each retry (skip il/ilce to prevent AJAX reset)
         await page.evaluate(() => {
+          const skipNames = ["il", "ilce", "ilçe", "semt", "mahalle"];
           document.querySelectorAll("select, input").forEach(el => {
-            if (el.value && el.name && el.name !== "s") {
+            if (el.value && el.name && el.name !== "s" && !skipNames.includes(el.name)) {
               el.dispatchEvent(new Event("change", { bubbles: true }));
             }
           });
@@ -809,15 +899,28 @@ async function postListing(email, password, metadata, photoFiles, onProgress, op
       resultContent.includes("eklendi");
 
     if (success) {
-      log("Listing posted successfully!");
+      log("Listing saved as draft.");
+
+      // Extract ilan ID from result URL (e.g. ?ilan=21677)
+      const ilanMatch = resultUrl.match(/[?&]ilan=(\d+)/);
       let listingUrl = resultUrl;
-      if (!resultUrl.includes("ilan/")) {
-        const newListingUrl = await page.evaluate(() => {
-          const link = document.querySelector('a[href*="ilan/"]');
-          return link ? link.href : null;
-        });
-        if (newListingUrl) listingUrl = newListingUrl;
+
+      if (ilanMatch) {
+        const ilanId = ilanMatch[1];
+        // Publish the listing by visiting the yayınla URL
+        const publishUrl = `https://www.gelgezgor.com/sayfa/ilanlarim?yayinla=${ilanId}`;
+        log(`Publishing listing ${ilanId}...`);
+        try {
+          await page.goto(publishUrl, { waitUntil: "networkidle2", timeout: 30000 });
+          log(`Listing ${ilanId} published!`);
+          listingUrl = publishUrl;
+        } catch (err) {
+          log(`  Warning: publish failed: ${err.message}`);
+        }
+      } else {
+        log("  Warning: could not extract ilan ID from URL to publish");
       }
+
       return { success: true, listingUrl };
     } else {
       // Capture all error/warning messages on the page

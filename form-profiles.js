@@ -24,7 +24,7 @@ function normalizeTurkish(str) {
 
 /**
  * Map raw building age value to gelgezgor.com select options.
- * Actual options: Belirtilmemiş, Proje Aşamasında, 1, 2, 3, 4, 5-10 arası, 11-15 arası, 16-20 arası, 21-25 arası, 26-30 arası, 31 ve üzeri
+ * Actual options: Belirtilmemiş, Proje Aşamasında, 1, 2, 3, 4, 5, 6-10 arası, 11-15 arası, 16-20 arası, 21-25 arası, 26-30 arası, 31 ve üzeri
  */
 function mapBinaYasi(raw) {
   if (!raw) return "Belirtilmemiş";
@@ -38,8 +38,8 @@ function mapBinaYasi(raw) {
   if (isNaN(num)) return "Belirtilmemiş";
 
   if (num === 0) return "Proje Aşamasında";
-  if (num >= 1 && num <= 4) return String(num);
-  if (num <= 10) return "5-10 arası";
+  if (num >= 1 && num <= 5) return String(num);
+  if (num <= 10) return "6-10 arası";
   if (num <= 15) return "11-15 arası";
   if (num <= 20) return "16-20 arası";
   if (num <= 25) return "21-25 arası";
@@ -238,6 +238,15 @@ const PROFILES = {
         ...RESIDENTIAL_FIELDS.bulundugu_kat,
         required: false,
       },
+      // Villa'da arsa metrekaresi = 101evler "Arsa Büyüklüğü", yoksa "-"
+      arsa_metrekaresi: {
+        required: true,
+        source: "details.Arsa Büyüklüğü",
+        sourceAlt: ["details.arsa büyüklüğü", "details.arsa buyuklugu", "details.Arsa Büyüklügü", "details.arsa metrekaresi"],
+        extract: /(\d[\d.,]*)/,
+        default: "-",
+        formNames: ["arsa_metrekaresi"],
+      },
     },
   },
 
@@ -248,7 +257,8 @@ const PROFILES = {
       ...COMMON_FIELDS,
       imar_durumu: {
         required: true,
-        source: "_derived.imarDurumu",
+        source: "details.İmar Durumu",
+        sourceAlt: ["details.imar durumu", "details.Imar Durumu", "_derived.imarDurumu"],
         default: "Konut",
         formNames: ["imar_durumu"],
       },
@@ -261,6 +271,8 @@ const PROFILES = {
       },
       kat_izni: {
         required: true,
+        source: "details.Kat İzni",
+        sourceAlt: ["details.kat izni", "details.Kat Izni", "details.kat İzni"],
         default: "Belirtilmemiş",
         formNames: ["kat_izni"],
       },
@@ -279,6 +291,13 @@ const PROFILES = {
         default: "Hayır",
         formNames: ["takas"],
       },
+      metrekare_fiyati: {
+        required: false,
+        source: "details.m² Fiyatı",
+        sourceAlt: ["details.m2 fiyati", "details.m² fiyati", "details.Metrekare Fiyatı", "details.metrekare fiyati"],
+        extract: /(\d[\d.,]*)/,
+        formNames: ["metrekare_fiyati", "m2_fiyati"],
+      },
     },
     skippedFields: [
       "oda_sayisi", "banyo_sayisi", "bina_yasi", "kat_sayisi",
@@ -287,6 +306,112 @@ const PROFILES = {
       "havuz", "otopark", "tapu_turu", "kdv_trafo",
       "arsa_metrekaresi",
     ],
+  },
+
+  hotel: {
+    label: "Turistik Tesis (Otel, Hotel)",
+    katCodes: [1162],
+    fields: {
+      ...COMMON_FIELDS,
+      acik_metrekare: {
+        required: false,
+        source: "details.m²",
+        sourceAlt: ["details.m2", "details.Metrekare", "details.Alan Ölçüsü", "details.alan olcusu"],
+        extract: /(\d[\d.,]*)/,
+        formNames: ["acik_metrekare"],
+      },
+      kapali_metrekare: {
+        required: true,
+        source: "details.net m²",
+        sourceAlt: ["details.net m2", "details.Kapalı Alan", "details.m²", "details.Metrekare", "details.Alan Ölçüsü"],
+        extract: /(\d[\d.,]*)/,
+        default: "-",
+        formNames: ["kapali_metrekare"],
+      },
+      yatak_sayisi: {
+        required: true,
+        source: "details.Yatak Sayısı",
+        sourceAlt: ["details.yatak sayisi", "details.yatak sayısı", "details.Oda Sayısı", "details.oda sayısı"],
+        default: "Belirtilmemiş",
+        formNames: ["yatak_sayisi", "yatak"],
+      },
+      zemin_etudu: {
+        required: false,
+        default: "Belirtilmemiş",
+        formNames: ["zemin_etudu"],
+      },
+      oda_sayisi: {
+        required: true,
+        source: "details.Oda Sayısı",
+        sourceAlt: ["details.oda sayısı", "details.oda sayisi", "details.oda", "details.Oda"],
+        formNames: ["Oda_sayisi", "oda_sayisi", "oda", "rooms"],
+        default: "Belirtilmemiş",
+      },
+      bina_yasi: {
+        required: true,
+        source: "details.Bina Yaşı",
+        sourceAlt: ["details.bina yasi", "details.bina yaşı"],
+        formNames: ["bina_yasi", "yasi"],
+        transform: mapBinaYasi,
+        default: "Belirtilmemiş",
+      },
+      kat_sayisi: {
+        required: true,
+        source: "details.Kat Sayısı",
+        sourceAlt: ["details.kat sayisi", "details.kat sayısı", "details.toplam kat"],
+        formNames: ["kat_sayisi", "toplam_kat"],
+      },
+      banyo_sayisi: {
+        required: true,
+        source: "details.Banyo Sayısı",
+        sourceAlt: ["details.banyo sayısı", "details.banyo sayisi", "details.banyo", "details.Banyo"],
+        formNames: ["banyo_sayisi", "banyo", "bathrooms"],
+        default: "1",
+      },
+      asansor: {
+        required: true,
+        source: "_derived.asansor",
+        default: "Hayır",
+        formNames: ["Asansör", "asansor", "asansör", "elevator"],
+      },
+      isitma: {
+        required: true,
+        source: "_derived.isitma",
+        default: "Klima",
+        formNames: ["isitma", "ısıtma", "heating"],
+      },
+      esyali: {
+        required: true,
+        source: "details.Eşya Durumu",
+        sourceAlt: ["details.esya durumu", "details.eşyalı", "details.esyali"],
+        default: "Belirtilmemiş",
+        valueMap: { "-": "Belirtilmemiş", "Eşyasız": "Hayır", "Eşyalı": "Evet" },
+        formNames: ["Esyali", "esyali", "eşyalı", "furnished"],
+      },
+      havuz: {
+        required: true,
+        source: "_derived.havuz",
+        default: "Hayır",
+        formNames: ["Havuz", "havuz", "pool"],
+      },
+      tapu_turu: {
+        required: true,
+        source: "details.Tapu Türü",
+        sourceAlt: ["details.tapu turu", "details.tapu türü"],
+        default: "Belirtilmemiş",
+        formNames: ["tapu_turu", "tapu_türü", "tapu"],
+      },
+      kdv_trafo: {
+        required: true,
+        default: "Belirtilmemiş",
+        formNames: ["Kdv-Trafo", "kdv_trafo", "kdv"],
+      },
+      takas: {
+        required: true,
+        default: "Hayır",
+        formNames: ["takas"],
+      },
+    },
   },
 
   commercial: {

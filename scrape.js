@@ -45,6 +45,8 @@ const CATEGORY_MAP = {
   "satilik-tarla": 101,
   "satilik-isyeri": 970,
   "satilik-dukkan": 970,
+  "satilik-hotel": 1162,
+  "satilik-otel": 1162,
 };
 
 // gelgezgor.com il kodları
@@ -90,7 +92,7 @@ function detectCategoryCode(url, details) {
   const combined = urlLower.replace(/-/g, " ") + " " + emlakTipi;
 
   const typeMap = isSale
-    ? { villa: 904, "ikiz villa": 19633, penthouse: 18260, studio: 902, "mustakil ev": 903, arsa: 101, tarla: 101, isyeri: 970, dukkan: 970, daire: 901 }
+    ? { villa: 904, "ikiz villa": 19633, penthouse: 18260, studio: 902, "mustakil ev": 903, arsa: 101, tarla: 101, isyeri: 970, dukkan: 970, hotel: 1162, otel: 1162, daire: 901 }
     : { villa: 915, penthouse: 19100, "mustakil ev": 914, isyeri: 970, dukkan: 970, daire: 912 };
 
   for (const [type, code] of Object.entries(typeMap)) {

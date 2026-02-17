@@ -249,12 +249,23 @@ app.post("/queue/stop", (req, res) => {
   }
 });
 
-// GET /queue — All items + worker status
+// GET /queue — Paginated items (newest first) + worker status
 app.get("/queue", (req, res) => {
   try {
-    const items = store.getAllItems();
+    const allItems = store.getAllItems();
     const status = worker.getStatus();
-    res.json({ items, status });
+
+    // Reverse: newest first
+    const reversed = [...allItems].reverse();
+
+    const page = Math.max(1, parseInt(req.query.page) || 1);
+    const limit = Math.min(100, Math.max(1, parseInt(req.query.limit) || 30));
+    const total = reversed.length;
+    const totalPages = Math.ceil(total / limit) || 1;
+    const start = (page - 1) * limit;
+    const items = reversed.slice(start, start + limit);
+
+    res.json({ items, status, pagination: { page, limit, total, totalPages } });
   } catch (err) {
     res.status(500).json({ error: err.message });
   }

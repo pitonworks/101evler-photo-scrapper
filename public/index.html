@@ -264,6 +264,32 @@
       font-size: 0.9rem;
     }
 
+    .pagination {
+      display: flex;
+      justify-content: center;
+      align-items: center;
+      gap: 6px;
+      margin-top: 12px;
+      margin-bottom: 16px;
+    }
+    .pagination button {
+      width: auto;
+      padding: 6px 12px;
+      margin: 0;
+      font-size: 0.8rem;
+      border-radius: 4px;
+      background: #e8e8e8;
+      color: #333;
+    }
+    .pagination button:hover { background: #d0d0d0; }
+    .pagination button.active { background: #4a90d9; color: #fff; }
+    .pagination button:disabled { background: #f0f0f0; color: #bbb; cursor: not-allowed; }
+    .pagination .page-info {
+      font-size: 0.8rem;
+      color: #888;
+      padding: 0 8px;
+    }
+
     /* Dry run result */
     .metadata-preview {
       margin-top: 16px;
@@ -529,6 +555,7 @@
       <div class="queue-list" id="queueList">
         <div class="queue-empty">Kuyrukta ilan yok</div>
       </div>
+      <div class="pagination" id="queuePagination" style="display:none"></div>
 
       <!-- Live log -->
       <div id="queueLog" class="log-area"></div>
@@ -855,6 +882,8 @@
 
     // ==================== Queue ====================
     let queueSSE = null;
+    let currentPage = 1;
+    const PAGE_SIZE = 30;
 
     function getStatusIcon(status) {
       switch (status) {
@@ -928,12 +957,57 @@
       }
     }
 
+    function renderPagination(pagination) {
+      const container = document.getElementById("queuePagination");
+      if (!pagination || pagination.totalPages <= 1) {
+        container.style.display = "none";
+        return;
+      }
+      container.style.display = "flex";
+      const { page, totalPages, total } = pagination;
+
+      let html = `<button ${page <= 1 ? "disabled" : ""} onclick="goToPage(${page - 1})">&laquo;</button>`;
+
+      // Show page buttons with ellipsis
+      const maxButtons = 5;
+      let startPage = Math.max(1, page - Math.floor(maxButtons / 2));
+      let endPage = Math.min(totalPages, startPage + maxButtons - 1);
+      if (endPage - startPage < maxButtons - 1) {
+        startPage = Math.max(1, endPage - maxButtons + 1);
+      }
+
+      if (startPage > 1) {
+        html += `<button onclick="goToPage(1)">1</button>`;
+        if (startPage > 2) html += `<span class="page-info">...</span>`;
+      }
+
+      for (let i = startPage; i <= endPage; i++) {
+        html += `<button class="${i === page ? "active" : ""}" onclick="goToPage(${i})">${i}</button>`;
+      }
+
+      if (endPage < totalPages) {
+        if (endPage < totalPages - 1) html += `<span class="page-info">...</span>`;
+        html += `<button onclick="goToPage(${totalPages})">${totalPages}</button>`;
+      }
+
+      html += `<button ${page >= totalPages ? "disabled" : ""} onclick="goToPage(${page + 1})">&raquo;</button>`;
+      html += `<span class="page-info">${total} ilan</span>`;
+
+      container.innerHTML = html;
+    }
+
+    function goToPage(page) {
+      currentPage = page;
+      loadQueueData();
+    }
+
     async function loadQueueData() {
       try {
-        const res = await fetch("/queue");
+        const res = await fetch(`/queue?page=${currentPage}&limit=${PAGE_SIZE}`);
         const data = await safeJson(res);
         renderQueueList(data.items);
         updateQueueStatus(data.status);
+        renderPagination(data.pagination);
       } catch (err) {
         console.error("Failed to load queue:", err);
       }

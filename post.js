@@ -163,8 +163,8 @@ async function postListing(email, password, metadata, photoFiles, onProgress, op
   enrichMetadata(metadata);
 
   // Step 2: Get profile for this property type
-  const profile = getProfile(metadata.katCode);
-  log(`Property profile: ${profile.label} (type: ${profile.type})`);
+  const profile = getProfile(metadata.katCode, metadata.saleType);
+  log(`Property profile: ${profile.label} (type: ${profile.type}, saleType: ${metadata.saleType || "unknown"})`);
 
   // Step 3: Derive smart defaults (asansör, ısıtma, kullanım durumu, etc.)
   deriveFields(metadata);
@@ -218,13 +218,41 @@ async function postListing(email, password, metadata, photoFiles, onProgress, op
             break;
           }
 
-          await fileInput.uploadFile(fp);
+          // Try native uploadFile with 15s timeout, fallback to base64
+          let uploadMethod = "native";
+          try {
+            await Promise.race([
+              fileInput.uploadFile(fp),
+              new Promise((_, reject) => setTimeout(() => reject(new Error("uploadFile timeout")), 15000)),
+            ]);
+          } catch (nativeErr) {
+            // Fallback: base64 DataTransfer
+            uploadMethod = "base64";
+            log(`  ${tag} ${fn} native failed (${nativeErr.message}), trying base64...`);
+            const b64 = fs.readFileSync(fp).toString("base64");
+            const mimeType = fn.match(/\.png$/i) ? "image/png" : "image/jpeg";
+            await page.evaluate((b64Data, mime, fileName) => {
+              const byteChars = atob(b64Data);
+              const byteArr = new Uint8Array(byteChars.length);
+              for (let j = 0; j < byteChars.length; j++) byteArr[j] = byteChars.charCodeAt(j);
+              const file = new File([byteArr], fileName, { type: mime });
+              const dt = new DataTransfer();
+              dt.items.add(file);
+              const input = document.querySelector('input[type="file"][name="files[]"]');
+              if (input) {
+                input.files = dt.files;
+                input.dispatchEvent(new Event("change", { bubbles: true }));
+              }
+            }, b64, mimeType, fn);
+          }
 
-          // Dispatch change event to trigger the plugin's upload handler
-          await page.evaluate(() => {
-            const el = document.querySelector('input[type="file"][name="files[]"]');
-            if (el) el.dispatchEvent(new Event("change", { bubbles: true }));
-          });
+          // If native succeeded, fire change event
+          if (uploadMethod === "native") {
+            await page.evaluate(() => {
+              const el = document.querySelector('input[type="file"][name="files[]"]');
+              if (el) el.dispatchEvent(new Event("change", { bubbles: true }));
+            });
+          }
 
           // Wait for upload-successful count to increase
           let success = false;
@@ -242,9 +270,9 @@ async function postListing(email, password, metadata, photoFiles, onProgress, op
 
           const elapsed = ((Date.now() - t0) / 1000).toFixed(1);
           if (success) {
-            log(`  ${tag} ${fn} OK (${(fz / 1024).toFixed(0)} KB, ${elapsed}s)`);
+            log(`  ${tag} ${fn} OK via ${uploadMethod} (${(fz / 1024).toFixed(0)} KB, ${elapsed}s)`);
           } else {
-            log(`  ${tag} ${fn} TIMEOUT after ${elapsed}s`);
+            log(`  ${tag} ${fn} TIMEOUT after ${elapsed}s (${uploadMethod})`);
           }
         } catch (err) {
           log(`  ${tag} ${fn} Error: ${err.message}`);
@@ -624,8 +652,13 @@ async function postListing(email, password, metadata, photoFiles, onProgress, op
       }
 
       if (key === "aciklama") {
-        const htmlContent = metadata.aciklama || entry.value || "";
-        if (!htmlContent) {
+        const rawContent = metadata.aciklama || entry.value || "";
+        // Strip emojis and variation selectors, collapse extra whitespace
+        const htmlContent = rawContent
+          .replace(/\p{Extended_Pictographic}/gu, "")
+          .replace(/[\uFE00-\uFE0F\u200D]/g, "")
+          .replace(/\s{2,}/g, " ");
+        if (!htmlContent.trim()) {
           log("  Warning: no description content found");
           skippedFields.push(key);
           continue;

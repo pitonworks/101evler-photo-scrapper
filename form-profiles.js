@@ -204,6 +204,7 @@ const RESIDENTIAL_FIELDS = {
   },
   kdv_trafo: {
     required: true,
+    source: "_derived.kdvTrafo",
     default: "Belirtilmemiş",
     formNames: ["Kdv-Trafo", "kdv_trafo", "kdv"],
   },
@@ -218,6 +219,47 @@ const RESIDENTIAL_FIELDS = {
     sourceAlt: ["details.m2", "details.Alan Ölçüsü", "details.alan olcusu", "details.Metrekare"],
     extract: /(\d[\d.,]*)/,
     formNames: ["arsa_metrekaresi"],
+  },
+};
+
+/**
+ * Map 101evler "En Az Kiralama" / "Kira Ödeme Aralığı" to gelgezgor select values.
+ * gelgezgor options: Belirtilmemiş, Aylık, 3 Aylık, 6 Aylık, 1 yıl, 2 yıl, 3 yıl, 4 yıl, 5 yıl
+ */
+function mapRentalPeriod(raw) {
+  if (!raw) return "Belirtilmemiş";
+  const n = normalizeTurkish(raw);
+  // Check longer patterns first to avoid partial matches
+  if (/6\s*aylik/.test(n)) return "6 Aylık";
+  if (/3\s*aylik/.test(n)) return "3 Aylık";
+  if (/aylik/.test(n)) return "Aylık";
+  const yearMatch = n.match(/(\d+)\s*yil/);
+  if (yearMatch) return yearMatch[1] + " yıl";
+  return "Belirtilmemiş";
+}
+
+// Rental-specific fields (kiralık formlarda zorunlu)
+const RENTAL_FIELDS = {
+  depozito: {
+    required: true,
+    default: "1 Kira Bedeli",
+    formNames: ["Depotizo", "depotizo", "Depozito", "depozito"],
+  },
+  kiralama_suresi: {
+    required: true,
+    source: "details.En Az Kiralama",
+    sourceAlt: ["details.en az kiralama", "details.Kiralama Süresi", "details.kiralama suresi"],
+    transform: mapRentalPeriod,
+    default: "1 yıl",
+    formNames: ["Kiralama_Suresi", "kiralama_suresi", "Kiralamasüresi_", "kiralama"],
+  },
+  kira_odemesi: {
+    required: true,
+    source: "details.Kira Ödeme Aralığı",
+    sourceAlt: ["details.kira odeme araligi", "details.Kira Ödeme Araligi", "details.Ödeme Şekli"],
+    transform: mapRentalPeriod,
+    default: "Aylık",
+    formNames: ["Kira_odemesi", "kira_odemesi"],
   },
 };
 
@@ -403,6 +445,7 @@ const PROFILES = {
       },
       kdv_trafo: {
         required: true,
+        source: "_derived.kdvTrafo",
         default: "Belirtilmemiş",
         formNames: ["Kdv-Trafo", "kdv_trafo", "kdv"],
       },
@@ -425,21 +468,7 @@ const PROFILES = {
         default: "Belirtilmemiş",
       },
       // Rental-specific fields (kat=970 formunda zorunlu)
-      depozito: {
-        required: true,
-        default: "Belirtilmemiş",
-        formNames: ["Depozito", "depozito"],
-      },
-      kiralama_suresi: {
-        required: true,
-        default: "Belirtilmemiş",
-        formNames: ["Kiralamasüresi_", "kiralama_suresi", "kiralama"],
-      },
-      kira_odemesi: {
-        required: true,
-        default: "Belirtilmemiş",
-        formNames: ["Kira_odemesi", "kira_odemesi"],
-      },
+      ...RENTAL_FIELDS,
     },
     // kat=970 formunda olmayan alanlar
     skippedFields: [
@@ -513,6 +542,25 @@ function deriveFields(metadata) {
     derived.otopark = "Açık Otopark";
   }
 
+  // KDV-Trafo: açıklama + detaylardan tespit
+  const kdvTrafoText = normalizeTurkish(
+    text + " " + (metadata.baslik || "") + " " + JSON.stringify(details)
+  );
+  const hasKdv = /kdv\s*(?:odenmis|odenmi[sş]|dahil|paid|included)/.test(kdvTrafoText)
+    || /vergiler?\s*(?:odenmis|odenmi[sş]|dahil)/.test(kdvTrafoText);
+  const hasTrafo = /trafo\s*(?:odenmis|odenmi[sş]|dahil|paid|included)/.test(kdvTrafoText)
+    || /altyapi\s*(?:odenmis|odenmi[sş]|dahil)/.test(kdvTrafoText);
+
+  if (hasKdv && hasTrafo) {
+    derived.kdvTrafo = "KDV ve Trafo Ödenmiş";
+  } else if (hasKdv) {
+    derived.kdvTrafo = "KDV Ödenmiş";
+  } else if (hasTrafo) {
+    derived.kdvTrafo = "Trafo Ödenmiş";
+  } else {
+    derived.kdvTrafo = "Belirtilmemiş";
+  }
+
   // İmar durumu: arsa/tarla için URL/başlık/detaylardan tespit
   if (metadata.katCode === 101) {
     const combined = normalizeTurkish(
@@ -568,15 +616,30 @@ function getNestedValue(obj, dotPath) {
 
 /**
  * Get the profile for a given katCode.
+ * @param {number} katCode
+ * @param {string} [saleType] - "satilik" or "kiralik"
  */
-function getProfile(katCode) {
+function getProfile(katCode, saleType) {
   const code = Number(katCode);
+  let matched = null;
+  let type = "residential";
   for (const [key, profile] of Object.entries(PROFILES)) {
     if (profile.katCodes.includes(code)) {
-      return { ...profile, type: key };
+      matched = profile;
+      type = key;
+      break;
     }
   }
-  return { ...PROFILES.residential, type: "residential" };
+  if (!matched) matched = PROFILES.residential;
+
+  const result = { ...matched, type, fields: { ...matched.fields } };
+
+  // Inject rental-specific fields for kiralık listings
+  if (saleType === "kiralik" && type !== "commercial") {
+    Object.assign(result.fields, RENTAL_FIELDS);
+  }
+
+  return result;
 }
 
 /**

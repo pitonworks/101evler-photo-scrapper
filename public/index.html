@@ -126,30 +126,6 @@
       font-size: 0.875rem;
     }
 
-    .checkbox-group { margin-bottom: 12px; }
-    .checkbox-label {
-      display: flex;
-      align-items: center;
-      gap: 8px;
-      cursor: pointer;
-      font-size: 0.9rem;
-      color: #555;
-    }
-    .checkbox-label input[type="checkbox"] {
-      width: 18px;
-      height: 18px;
-      accent-color: #e67e22;
-    }
-
-    .btn-transfer {
-      background: #e67e22;
-    }
-    .btn-transfer:hover { background: #d35400; }
-    .btn-transfer:disabled {
-      background: #f0c08a;
-      cursor: not-allowed;
-    }
-
     /* Queue styles */
     .queue-controls {
       display: flex;
@@ -294,35 +270,6 @@
       padding: 0 8px;
     }
 
-    /* Dry run result */
-    .metadata-preview {
-      margin-top: 16px;
-      background: #fff;
-      border: 1px solid #ddd;
-      border-radius: 6px;
-      padding: 12px 16px;
-      font-size: 0.85rem;
-      display: none;
-    }
-    .metadata-preview h3 {
-      font-size: 0.9rem;
-      margin-bottom: 8px;
-      color: #4a90d9;
-    }
-    .metadata-preview .meta-row {
-      display: flex;
-      justify-content: space-between;
-      padding: 4px 0;
-      border-bottom: 1px solid #f0f0f0;
-    }
-    .metadata-preview .meta-row:last-child { border-bottom: none; }
-    .metadata-preview .meta-label { color: #888; }
-    .metadata-preview .meta-value { font-weight: 500; }
-    .metadata-preview h4 {
-      font-size: 0.85rem;
-      margin-bottom: 6px;
-    }
-
     /* Modal styles */
     .modal-overlay {
       display: none;
@@ -449,7 +396,6 @@
     <!-- Tabs -->
     <div class="tabs">
       <div class="tab active" onclick="switchTab('scraper')">Photo Scraper</div>
-      <div class="tab" onclick="switchTab('transfer')">Listing Transfer</div>
       <div class="tab" onclick="switchTab('queue')">Queue</div>
     </div>
 
@@ -470,49 +416,7 @@
       <div id="log" class="log-area"></div>
     </div>
 
-    <!-- Tab 2: Listing Transfer (single) -->
-    <div id="tab-transfer" class="tab-content">
-      <div class="form-group">
-        <label for="transferUrl">101evler Link</label>
-        <input type="text" id="transferUrl" placeholder="https://www.101evler.com/...">
-      </div>
-      <div class="form-group">
-        <label for="ggEmail">gelgezgor.com Email</label>
-        <input type="email" id="ggEmail" placeholder="email@example.com">
-      </div>
-      <div class="form-group">
-        <label for="ggPassword">gelgezgor.com Password</label>
-        <input type="password" id="ggPassword" placeholder="Password">
-      </div>
-      <div class="form-group">
-        <label for="maxPhotos">Max Foto (bos = hepsi)</label>
-        <input type="text" id="maxPhotos" placeholder="orn: 5">
-      </div>
-      <div class="form-group checkbox-group">
-        <label class="checkbox-label">
-          <input type="checkbox" id="dryRunCheck">
-          <span>Dry Run (formu doldur ama gonderme)</span>
-        </label>
-      </div>
-      <button id="transferBtn" class="btn-transfer" onclick="startTransfer()">Transfer Listing</button>
-      <div id="dryRunResult" class="metadata-preview" style="display:none">
-        <h3>Dry Run Sonucu</h3>
-        <div id="dryRunProfile"></div>
-        <h4 style="margin-top:12px;font-size:0.85rem;color:#e67e22">Doldurulan Alanlar</h4>
-        <div id="dryRunValues"></div>
-        <div id="dryRunWarnings" style="display:none">
-          <h4 style="margin-top:12px;font-size:0.85rem;color:#e74c3c">Uyarilar</h4>
-          <div id="dryRunWarningsList"></div>
-        </div>
-        <div id="dryRunSkipped" style="display:none">
-          <h4 style="margin-top:12px;font-size:0.85rem;color:#888">Atlanan Alanlar</h4>
-          <div id="dryRunSkippedList"></div>
-        </div>
-      </div>
-      <div id="transferLog" class="log-area"></div>
-    </div>
-
-    <!-- Tab 3: Queue -->
+    <!-- Tab 2: Queue -->
     <div id="tab-queue" class="tab-content">
       <!-- Credentials -->
       <div class="form-group">
@@ -581,8 +485,7 @@
       document.getElementById('tab-' + tabName).classList.add('active');
       const tabs = document.querySelectorAll('.tab');
       if (tabName === 'scraper') tabs[0].classList.add('active');
-      else if (tabName === 'transfer') tabs[1].classList.add('active');
-      else if (tabName === 'queue') tabs[2].classList.add('active');
+      else if (tabName === 'queue') tabs[1].classList.add('active');
 
       // Load queue data when switching to queue tab
       if (tabName === 'queue') loadQueueData();
@@ -754,121 +657,15 @@
       btn.textContent = "Start";
     }
 
-    // ==================== Listing Transfer (single) ====================
     // Save/restore email from localStorage
     const savedEmail = localStorage.getItem("gg_email");
     if (savedEmail) {
       document.addEventListener("DOMContentLoaded", () => {
-        const el = document.getElementById("ggEmail");
-        if (el) el.value = savedEmail;
         const qEl = document.getElementById("qEmail");
         if (qEl) qEl.value = savedEmail;
       });
-      const emailEl = document.getElementById("ggEmail");
-      if (emailEl) emailEl.value = savedEmail;
       const qEmailEl = document.getElementById("qEmail");
       if (qEmailEl) qEmailEl.value = savedEmail;
-    }
-
-    function showDryRunResult(data) {
-      const container = document.getElementById("dryRunResult");
-      container.style.display = "block";
-
-      document.getElementById("dryRunProfile").innerHTML =
-        `<div class="meta-row"><span class="meta-label">Profil</span><span class="meta-value">${data.profile.label}</span></div>` +
-        `<div class="meta-row"><span class="meta-label">Tip</span><span class="meta-value">${data.profile.type}</span></div>` +
-        `<div class="meta-row"><span class="meta-label">Form alanlari</span><span class="meta-value">${data.discoveredFields.length} kesfedildi</span></div>`;
-
-      const valuesHtml = Object.entries(data.mappedValues).map(([key, val]) => {
-        const filled = data.filledFields.includes(key);
-        const displayVal = key === "aciklama" ? val.substring(0, 80) + "..." : val;
-        return `<div class="meta-row">
-          <span class="meta-label">${key} ${filled ? "+" : "-"}</span>
-          <span class="meta-value" style="color:${filled ? "#27ae60" : "#e74c3c"}">${displayVal}</span>
-        </div>`;
-      }).join("");
-      document.getElementById("dryRunValues").innerHTML = valuesHtml;
-
-      const warningsEl = document.getElementById("dryRunWarnings");
-      if (data.warnings && data.warnings.length > 0) {
-        warningsEl.style.display = "block";
-        document.getElementById("dryRunWarningsList").innerHTML =
-          data.warnings.map(w => `<div class="meta-row"><span class="meta-label" style="color:#e74c3c">${w}</span></div>`).join("");
-      } else {
-        warningsEl.style.display = "none";
-      }
-
-      const skippedEl = document.getElementById("dryRunSkipped");
-      if (data.skippedFields && data.skippedFields.length > 0) {
-        skippedEl.style.display = "block";
-        document.getElementById("dryRunSkippedList").innerHTML =
-          data.skippedFields.map(f => `<div class="meta-row"><span class="meta-label">${f}</span></div>`).join("");
-      } else {
-        skippedEl.style.display = "none";
-      }
-    }
-
-    async function startTransfer() {
-      const url = document.getElementById("transferUrl").value.trim();
-      const email = document.getElementById("ggEmail").value.trim();
-      const password = document.getElementById("ggPassword").value.trim();
-      const dryRun = document.getElementById("dryRunCheck").checked;
-      const maxPhotos = document.getElementById("maxPhotos").value.trim();
-      const btn = document.getElementById("transferBtn");
-      const log = document.getElementById("transferLog");
-      const dryRunResult = document.getElementById("dryRunResult");
-
-      if (!url) { alert("Please enter a 101evler URL."); return; }
-      if (!email) { alert("Please enter gelgezgor email."); return; }
-      if (!password) { alert("Please enter gelgezgor password."); return; }
-
-      localStorage.setItem("gg_email", email);
-
-      log.style.display = "block";
-      log.innerHTML = "";
-      dryRunResult.style.display = "none";
-      btn.disabled = true;
-      btn.textContent = dryRun ? "Running Dry Run..." : "Transferring...";
-
-      try {
-        const response = await fetch("/transfer", {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ url, email, password, dryRun, maxPhotos: maxPhotos || undefined })
-        });
-
-        await readSSEStream(response, log, {
-          phase: (data) => appendLog(log, `--- ${data.message} ---`, "phase"),
-          scraped: (data) => {
-            appendLog(log, "Metadata scraped successfully!", "done");
-          },
-          dryrun: (data) => {
-            appendLog(log, "Dry run completed!", "done");
-            showDryRunResult(data);
-          },
-          done: (data) => {
-            if (data.dryRun) {
-              appendLog(log, "Dry run finished - form was NOT submitted", "done");
-            } else if (data.success) {
-              appendLog(log, `Listing posted successfully!`, "done");
-              if (data.listingUrl) {
-                appendLog(log, `URL: ${data.listingUrl}`, "done");
-              }
-            } else {
-              appendLog(log, `Transfer completed with warnings: ${data.error || "check gelgezgor.com"}`, "error");
-              if (data.listingUrl) {
-                appendLog(log, `Result URL: ${data.listingUrl}`, "progress");
-              }
-            }
-          },
-          error: (data) => appendLog(log, `Error: ${data.message}`, "error"),
-        });
-      } catch (err) {
-        appendLog(log, `Connection error: ${err.message}`, "error");
-      }
-
-      btn.disabled = false;
-      btn.textContent = "Transfer Listing";
     }
 
     // ==================== Queue ====================

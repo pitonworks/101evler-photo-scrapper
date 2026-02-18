@@ -129,6 +129,7 @@ function start(credentials, options = {}) {
         store.updateItem(item.id, {
           status: "processing",
           startedAt: new Date().toISOString(),
+          email: credentials.email,
         });
         broadcast("item-start", { itemId: item.id, url: item.url });
 

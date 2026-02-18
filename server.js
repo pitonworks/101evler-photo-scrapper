@@ -265,7 +265,14 @@ app.get("/queue", (req, res) => {
     const start = (page - 1) * limit;
     const items = reversed.slice(start, start + limit);
 
-    res.json({ items, status, pagination: { page, limit, total, totalPages } });
+    // Include logs for the currently processing item
+    let currentLogs = [];
+    if (status.currentItemId) {
+      const current = store.getItem(status.currentItemId);
+      if (current && current.logs) currentLogs = current.logs;
+    }
+
+    res.json({ items, status, pagination: { page, limit, total, totalPages }, currentLogs });
   } catch (err) {
     res.status(500).json({ error: err.message });
   }

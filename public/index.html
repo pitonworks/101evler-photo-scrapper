@@ -222,10 +222,14 @@
     }
     .qi-url {
       flex: 1;
+      min-width: 0;
+      color: #333;
+    }
+    .qi-url-text {
       overflow: hidden;
       text-overflow: ellipsis;
       white-space: nowrap;
-      color: #333;
+      display: block;
     }
     .qi-actions {
       display: flex;
@@ -519,19 +523,6 @@
         <label for="qPassword">gelgezgor.com Password</label>
         <input type="password" id="qPassword" placeholder="Password">
       </div>
-      <div style="display:flex;gap:12px;margin-bottom:16px">
-        <div class="form-group" style="flex:1;margin-bottom:0">
-          <label for="qMaxPhotos">Max Foto</label>
-          <input type="number" id="qMaxPhotos" placeholder="hepsi">
-        </div>
-        <div class="form-group" style="flex:1;margin-bottom:0">
-          <label class="checkbox-label" style="margin-top:24px">
-            <input type="checkbox" id="qDryRun">
-            <span>Dry Run</span>
-          </label>
-        </div>
-      </div>
-
       <!-- Add URL -->
       <div class="queue-add-row">
         <input type="text" id="qUrlInput" placeholder="https://www.101evler.com/... (birden fazla icin virgul ile ayirin)">
@@ -551,14 +542,14 @@
         <span class="status-counts" id="qStatusCounts"></span>
       </div>
 
+      <!-- Live log -->
+      <div id="queueLog" class="log-area"></div>
+
       <!-- Queue list -->
       <div class="queue-list" id="queueList">
         <div class="queue-empty">Kuyrukta ilan yok</div>
       </div>
       <div class="pagination" id="queuePagination" style="display:none"></div>
-
-      <!-- Live log -->
-      <div id="queueLog" class="log-area"></div>
     </div>
   </div>
 
@@ -912,9 +903,10 @@
             `<button class="btn-delete" onclick="deleteQueueItem('${item.id}')">Sil</button>`;
         }
         const errorInfo = item.error ? ` title="${item.error}"` : "";
+        const emailInfo = item.email ? `<span style="font-size:0.7rem;color:#aaa;display:block;margin-top:2px">${item.email}</span>` : "";
         return `<div class="queue-item ${item.status}"${errorInfo}>
           <span class="qi-icon">${getStatusIcon(item.status)}</span>
-          <span class="qi-url" title="${item.url}">${shortUrl}</span>
+          <span class="qi-url" title="${item.url}"><span class="qi-url-text">${shortUrl}</span>${emailInfo}</span>
           <span style="font-size:0.75rem;color:#888;text-transform:uppercase">${item.status}</span>
           <span class="qi-actions">${actions}</span>
         </div>`;
@@ -1008,6 +1000,16 @@
         renderQueueList(data.items);
         updateQueueStatus(data.status);
         renderPagination(data.pagination);
+
+        // Restore logs for currently processing item on page load
+        if (data.currentLogs && data.currentLogs.length > 0) {
+          const logEl = document.getElementById("queueLog");
+          if (logEl && logEl.children.length === 0) {
+            for (const msg of data.currentLogs) {
+              appendLog(logEl, msg, "progress");
+            }
+          }
+        }
       } catch (err) {
         console.error("Failed to load queue:", err);
       }
@@ -1107,8 +1109,6 @@
     async function startQueue() {
       const email = document.getElementById("qEmail").value.trim();
       const password = document.getElementById("qPassword").value.trim();
-      const dryRun = document.getElementById("qDryRun").checked;
-      const maxPhotos = document.getElementById("qMaxPhotos").value.trim();
 
       if (!email) { alert("Email girin."); return; }
       if (!password) { alert("Sifre girin."); return; }
@@ -1124,7 +1124,7 @@
         const res = await fetch("/queue/start", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ email, password, dryRun, maxPhotos: maxPhotos || undefined })
+          body: JSON.stringify({ email, password })
         });
         const data = await safeJson(res);
         if (data.error) { alert(data.error); return; }

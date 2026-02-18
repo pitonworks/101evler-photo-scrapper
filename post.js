@@ -135,8 +135,10 @@ async function discoverForm(email, password, katCode, onProgress) {
       return result;
     });
 
-    log(`Discovered ${fields.length} form fields:`);
-    for (const f of fields) {
+    const nonCheckbox = fields.filter(f => f.type !== "checkbox");
+    const checkboxCount = fields.length - nonCheckbox.length;
+    log(`Discovered ${fields.length} form fields (${checkboxCount} checkboxes hidden):`);
+    for (const f of nonCheckbox) {
       const info = `  ${f.tag}[name="${f.name}"] type=${f.type}${f.required ? " REQUIRED" : ""}${f.options ? ` (${f.options.length} options)` : ""}${f.label ? ` label="${f.label}"` : ""}`;
       log(info);
     }
@@ -202,7 +204,15 @@ async function postListing(email, password, metadata, photoFiles, onProgress, op
       const filesToUpload = photoFiles.slice(0, maxPhotos);
       log(`Uploading ${filesToUpload.length} photos via fileuploader plugin...`);
 
-      let uploadedCount = 0;
+      // Count existing thumbnails to track progress
+      let uploadedCount = await page.evaluate(() =>
+        document.querySelectorAll(".fileuploader-item.upload-successful").length
+      );
+      const initialCount = uploadedCount;
+      if (initialCount > 0) {
+        log(`  Initial thumbnails on page: ${initialCount}`);
+      }
+
       for (let i = 0; i < filesToUpload.length; i++) {
         const fp = filesToUpload[i];
         const fn = path.basename(fp);
@@ -211,53 +221,32 @@ async function postListing(email, password, metadata, photoFiles, onProgress, op
         const t0 = Date.now();
 
         try {
-          // Re-acquire file input each time (plugin may replace the element)
-          const fileInput = await page.$('input[type="file"][name="files[]"]');
-          if (!fileInput) {
-            log(`  ${tag} ${fn} - file input not found, stopping uploads`);
-            break;
-          }
+          // base64 → DataTransfer → jQuery change (triggers plugin's own upload)
+          const b64 = fs.readFileSync(fp).toString("base64");
+          const mimeType = fn.match(/\.png$/i) ? "image/png" : "image/jpeg";
 
-          // Try native uploadFile with 15s timeout, fallback to base64
-          let uploadMethod = "native";
-          try {
-            await Promise.race([
-              fileInput.uploadFile(fp),
-              new Promise((_, reject) => setTimeout(() => reject(new Error("uploadFile timeout")), 15000)),
-            ]);
-          } catch (nativeErr) {
-            // Fallback: base64 DataTransfer
-            uploadMethod = "base64";
-            log(`  ${tag} ${fn} native failed (${nativeErr.message}), trying base64...`);
-            const b64 = fs.readFileSync(fp).toString("base64");
-            const mimeType = fn.match(/\.png$/i) ? "image/png" : "image/jpeg";
-            await page.evaluate((b64Data, mime, fileName) => {
-              const byteChars = atob(b64Data);
-              const byteArr = new Uint8Array(byteChars.length);
-              for (let j = 0; j < byteChars.length; j++) byteArr[j] = byteChars.charCodeAt(j);
-              const file = new File([byteArr], fileName, { type: mime });
-              const dt = new DataTransfer();
-              dt.items.add(file);
-              const input = document.querySelector('input[type="file"][name="files[]"]');
-              if (input) {
-                input.files = dt.files;
-                input.dispatchEvent(new Event("change", { bubbles: true }));
+          await page.evaluate((b64Data, mime, fileName) => {
+            const byteChars = atob(b64Data);
+            const byteArr = new Uint8Array(byteChars.length);
+            for (let j = 0; j < byteChars.length; j++) byteArr[j] = byteChars.charCodeAt(j);
+            const file = new File([byteArr], fileName, { type: mime });
+            const dt = new DataTransfer();
+            dt.items.add(file);
+            const input = document.querySelector('input[type="file"][name="files[]"]');
+            if (input) {
+              input.files = dt.files;
+              // Fire native + jQuery events so plugin detects the file
+              input.dispatchEvent(new Event("change", { bubbles: true }));
+              if (typeof jQuery !== "undefined") {
+                jQuery(input).trigger("change");
               }
-            }, b64, mimeType, fn);
-          }
-
-          // If native succeeded, fire change event
-          if (uploadMethod === "native") {
-            await page.evaluate(() => {
-              const el = document.querySelector('input[type="file"][name="files[]"]');
-              if (el) el.dispatchEvent(new Event("change", { bubbles: true }));
-            });
-          }
+            }
+          }, b64, mimeType, fn);
 
           // Wait for upload-successful count to increase
           let success = false;
           for (let poll = 0; poll < 60; poll++) {
-            await new Promise((r) => setTimeout(r, 250));
+            await new Promise((r) => setTimeout(r, 500));
             const count = await page.evaluate(() =>
               document.querySelectorAll(".fileuploader-item.upload-successful").length
             );
@@ -270,15 +259,16 @@ async function postListing(email, password, metadata, photoFiles, onProgress, op
 
           const elapsed = ((Date.now() - t0) / 1000).toFixed(1);
           if (success) {
-            log(`  ${tag} ${fn} OK via ${uploadMethod} (${(fz / 1024).toFixed(0)} KB, ${elapsed}s)`);
+            log(`  ${tag} ${fn} OK (${(fz / 1024).toFixed(0)} KB, ${elapsed}s)`);
           } else {
-            log(`  ${tag} ${fn} TIMEOUT after ${elapsed}s (${uploadMethod})`);
+            log(`  ${tag} ${fn} TIMEOUT after ${elapsed}s`);
           }
         } catch (err) {
           log(`  ${tag} ${fn} Error: ${err.message}`);
         }
       }
-      log(`Photos: ${uploadedCount}/${filesToUpload.length} uploaded`);
+      const actualUploaded = uploadedCount - initialCount;
+      log(`Photos: ${actualUploaded}/${filesToUpload.length} uploaded`);
     }
 
     // Build name->field map
